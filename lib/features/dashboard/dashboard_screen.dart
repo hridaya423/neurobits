@@ -12,13 +12,13 @@ import 'completed_paths_screen.dart';
 import '../../core/learning_path_providers.dart';
 import '../learning_path/learning_path_roadmap_screen.dart';
 import 'package:shimmer/shimmer.dart';
-import 'package:neurobits/features/profile/screens/challenge_quiz_screen.dart';
-import 'package:neurobits/features/challenges/screens/topic_customization_screen.dart';
+
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
   @override
   ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
 }
+
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   late final TextEditingController _topicController;
   bool _isRefreshing = false;
@@ -29,21 +29,25 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     _topicController = TextEditingController();
     _topicController.addListener(_onTopicChanged);
   }
+
   @override
   void dispose() {
     _topicController.removeListener(_onTopicChanged);
     _topicController.dispose();
     super.dispose();
   }
+
   void _onTopicChanged() {
     if (mounted) {
       setState(() {});
     }
   }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
   }
+
   Future<void> _refreshData() async {
     if (_isRefreshing) return;
     setState(() => _isRefreshing = true);
@@ -62,6 +66,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       }
     }
   }
+
   void _onXpOrPointsChanged() {
     final user = ref.read(userProvider).value;
     if (user != null) {
@@ -70,6 +75,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       ref.invalidate(userPathDataProvider);
     }
   }
+
   Future<List<Map<String, dynamic>>> _fetchCompletedPaths(String userId) async {
     try {
       final paths = await SupabaseService.client
@@ -83,6 +89,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       return [];
     }
   }
+
   String _capitalizeTopicName(String topic) {
     if (topic.isEmpty) return topic;
     final words = topic.split(' ');
@@ -91,6 +98,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       return word[0].toUpperCase() + word.substring(1).toLowerCase();
     }).join(' ');
   }
+
   List<Map<String, dynamic>> _filterChallengesByTopic(
       List<Map<String, dynamic>> challenges, String topic) {
     if (topic.isEmpty) return challenges;
@@ -111,6 +119,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           challengeQuestion.contains(topic.toLowerCase());
     }).toList();
   }
+
   @override
   Widget build(BuildContext context) {
     final userAsync = ref.watch(userProvider.select((value) => value));
@@ -142,6 +151,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       ),
     );
   }
+
   Widget _buildContent(
       BuildContext context,
       WidgetRef ref,
@@ -155,9 +165,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final mostSolvedChallenges = ref.watch(mostSolvedChallengesProvider);
     final userPoints = user['points'] ?? 0;
     List<dynamic> filteredChallenges = [];
-    if (challenges is AsyncValue<List<Map<String, dynamic>>>) {
-      filteredChallenges = challenges.value ?? [];
-    }
+    filteredChallenges = challenges.value ?? [];
     int currentStep = 1;
     int totalSteps = 1;
     String? currentTopicName;
@@ -339,30 +347,29 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   ],
                 ),
               ),
-              if (user != null)
-                ref.watch(completedPathsProvider(user['id'])).when(
-                      loading: () => const SizedBox(),
-                      error: (e, _) => const SizedBox(),
-                      data: (completedPaths) {
-                        if (completedPaths.isEmpty) return const SizedBox();
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16.0, vertical: 0.0),
-                          child: ElevatedButton.icon(
-                            icon: const Icon(Icons.history),
-                            label: const Text('Review Completed Paths'),
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const CompletedPathsScreen(),
-                                ),
-                              );
-                            },
-                          ),
-                        );
-                      },
-                    ),
+              ref.watch(completedPathsProvider(user['id'])).when(
+                    loading: () => const SizedBox(),
+                    error: (e, _) => const SizedBox(),
+                    data: (completedPaths) {
+                      if (completedPaths.isEmpty) return const SizedBox();
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16.0, vertical: 0.0),
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.history),
+                          label: const Text('Review Completed Paths'),
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const CompletedPathsScreen(),
+                              ),
+                            );
+                          },
+                        ),
+                      );
+                    },
+                  ),
               const SizedBox(height: 16),
             ],
             Container(
@@ -900,6 +907,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       ),
     );
   }
+
   Color _getDifficultyColor(dynamic difficulty) {
     final difficultyStr =
         difficulty is int ? difficulty.toString() : difficulty;
@@ -917,6 +925,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         return Colors.blue;
     }
   }
+
   IconData _getChallengeTypeIcon(String type) {
     switch (type.toLowerCase()) {
       case 'quiz':
@@ -927,6 +936,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         return Icons.lightbulb;
     }
   }
+
   String _getChallengeTypeText(String type) {
     switch (type.toLowerCase()) {
       case 'quiz':
@@ -937,6 +947,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         return 'Brain Challenge';
     }
   }
+
   Widget _buildActionButton(BuildContext context, WidgetRef ref) {
     final topic = mounted ? _topicController.text.trim() : "";
     final buttonHeight = 52.0;
@@ -1004,9 +1015,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       "[DashboardScreen] Error generating quiz: $e\n$stackTrace");
                   if (mounted) {
                     setState(() => _isGeneratingQuiz = false);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Failed to start challenge: $e')),
-                    );
+
+                    if (e is GroqApiError) {
+                      e.showNotification(context);
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                            content: Text('Failed to start challenge: $e')),
+                      );
+                    }
                   }
                 }
               },
@@ -1029,8 +1046,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 }
+
 class _DashboardSkeleton extends StatelessWidget {
-  const _DashboardSkeleton({Key? key}) : super(key: key);
+  const _DashboardSkeleton();
   @override
   Widget build(BuildContext context) {
     return _Shimmer(
@@ -1111,9 +1129,10 @@ class _DashboardSkeleton extends StatelessWidget {
     );
   }
 }
+
 class _Shimmer extends StatelessWidget {
   final Widget child;
-  const _Shimmer({required this.child, Key? key}) : super(key: key);
+  const _Shimmer({required this.child});
   @override
   Widget build(BuildContext context) {
     return Shimmer.fromColors(

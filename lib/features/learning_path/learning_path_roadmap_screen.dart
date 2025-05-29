@@ -2,19 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/learning_path_providers.dart';
-import '../../core/providers.dart' hide userPreferencesProvider;
-import '../../services/supabase.dart';
-import '../../services/groq_service.dart';
+
 class LearningPathRoadmapScreen extends ConsumerStatefulWidget {
   const LearningPathRoadmapScreen({super.key});
   @override
   ConsumerState<LearningPathRoadmapScreen> createState() =>
       _LearningPathRoadmapScreenState();
 }
+
 class _LearningPathRoadmapScreenState
     extends ConsumerState<LearningPathRoadmapScreen> {
-  bool _isGeneratingQuiz = false;
-  int? _generatingChallengeId;
+  final bool _isGeneratingQuiz = false;
+  String? _generatingChallengeId;
   @override
   Widget build(BuildContext context) {
     final userPath = ref.watch(userPathProvider);
@@ -37,9 +36,14 @@ class _LearningPathRoadmapScreenState
           itemBuilder: (context, index) {
             final challenge = challenges[index];
             final bool isCompleted = challenge['completed'] == true;
-            final bool isCurrent = (index + 1) == userPath['current_step'];
-            final String topic = challenge['topic'] ?? 'Unknown Topic';
-            final int challengeId = challenge['id'];
+            final rawStep = userPath['current_step'];
+            final int currentStep = rawStep is int
+                ? rawStep
+                : int.tryParse(rawStep?.toString() ?? '') ?? 1;
+            final bool isCurrent = (index + 1) == currentStep;
+            final String topic =
+                challenge['topic']?.toString() ?? 'Unknown Topic';
+            final String challengeId = challenge['id']?.toString() ?? '';
             return Card(
               margin: const EdgeInsets.only(bottom: 12),
               elevation: isCurrent ? 4 : 1,

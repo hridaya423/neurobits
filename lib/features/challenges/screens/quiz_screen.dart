@@ -17,7 +17,8 @@ class AnalyticsBadge extends StatelessWidget {
   final dynamic value;
   final Color color;
   const AnalyticsBadge(
-      {required this.icon,
+      {super.key,
+      required this.icon,
       required this.label,
       required this.value,
       required this.color});
@@ -53,7 +54,8 @@ class AnalyticsBadge extends StatelessWidget {
 class QuizReview extends StatelessWidget {
   final List<Map<String, dynamic>> questions;
   final List<dynamic> selectedAnswers;
-  const QuizReview({required this.questions, required this.selectedAnswers});
+  const QuizReview(
+      {super.key, required this.questions, required this.selectedAnswers});
   static bool isAnswerCorrect(Map<String, dynamic> q, dynamic userAnswer) {
     if (userAnswer == null) return false;
     final type = q['type']?.toString().toLowerCase() ??
@@ -499,8 +501,10 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
     for (int i = 0; i < widget.questions.length; i++) {
       if (_selectedAnswers[i] != null) answeredCount++;
       if (_selectedAnswers[i] != null &&
-          QuizReview.isAnswerCorrect(widget.questions[i], _selectedAnswers[i]))
+          QuizReview.isAnswerCorrect(
+              widget.questions[i], _selectedAnswers[i])) {
         correctCount++;
+      }
     }
     final safeAccuracy = answeredCount > 0 ? correctCount / answeredCount : 0.0;
     await SupabaseService.saveProgress(
@@ -603,7 +607,9 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
           if (_selectedAnswers[i] != null) answeredCount++;
           if (_selectedAnswers[i] != null &&
               QuizReview.isAnswerCorrect(
-                  widget.questions[i], _selectedAnswers[i])) correctCount++;
+                  widget.questions[i], _selectedAnswers[i])) {
+            correctCount++;
+          }
         }
         final safeAccuracy =
             answeredCount > 0 ? (correctCount / answeredCount) : 0.0;
@@ -628,13 +634,66 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
               totalCount: widget.questions.length,
             );
             try {
+              final userPath = ref.read(userPathProvider);
               final bool advanced =
                   await SupabaseService.checkAndAdvancePathStep(user.id);
-              if (advanced && mounted) {
-                debugPrint("Quiz completion triggered path advancement!");
-                ref.invalidate(userPathProvider);
-                ref.invalidate(activeLearningPathProvider(user.id));
-                ref.invalidate(userPathChallengesProvider);
+              if (mounted) {
+                if (advanced) {
+                  debugPrint("Quiz completion triggered path advancement!");
+                  ref.invalidate(userPathProvider);
+                  ref.invalidate(activeLearningPathProvider(user.id));
+                  ref.invalidate(userPathChallengesProvider);
+                } else {
+                  if (userPath != null) {
+                    
+                    
+                    double passThreshold = 0.75;
+                    if (userPath['metadata'] is Map<String, dynamic> &&
+                        (userPath['metadata']
+                                as Map<String, dynamic>)['threshold'] !=
+                            null) {
+                      passThreshold = ((userPath['metadata']
+                              as Map<String, dynamic>)['threshold'] as num)
+                          .toDouble();
+                    }
+                    if (passThreshold < 0.5) passThreshold = 0.5;
+                    
+                    showDialog(
+                      context: context,
+                      builder: (dialogCtx) {
+                        return AlertDialog(
+                          title: const Text('Topic Incomplete'),
+                          content: Text(
+                              'Your accuracy was ${(safeAccuracy * 100).toStringAsFixed(1)}%, which is below the required ${(passThreshold * 100).round()}%. Would you like to retry?'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(dialogCtx).pop(),
+                              child: const Text('Cancel'),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                Navigator.of(dialogCtx).pop();
+                                
+                                setState(() {
+                                  _completed = false;
+                                  _currentQuestionIndex = 0;
+                                  _selectedAnswers = List<dynamic>.filled(
+                                      widget.questions.length, null);
+                                  _startTime = DateTime.now();
+                                  if (widget.timedMode) {
+                                    _secondsRemaining = _perQuestionTime!;
+                                    _startTimer();
+                                  }
+                                });
+                              },
+                              child: const Text('Retry'),
+                            ),
+                          ],
+                        );
+                      },
+                    );
+                  }
+                }
               }
             } catch (e) {
               debugPrint("Error checking for path advancement after quiz: $e");
@@ -855,13 +914,13 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
                       ),
                     );
                   },
-                  child: const Text('View Summary'),
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 16, vertical: 12),
                     backgroundColor: Colors.deepPurple,
                     foregroundColor: Colors.white,
                   ),
+                  child: const Text('View Summary'),
                 ),
                 const SizedBox(height: 16),
                 ElevatedButton(
@@ -872,7 +931,6 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
                         _finalAccuracy);
                     context.pop();
                   },
-                  child: Text('Back to Dashboard'),
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 16, vertical: 12),
@@ -885,6 +943,7 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
                             ? Colors.white
                             : null,
                   ),
+                  child: Text('Back to Dashboard'),
                 ),
               ],
             );
@@ -899,7 +958,7 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
     if (widget.questions.isEmpty) {
       return Scaffold(
         appBar: AppBar(
-          title: Text(widget.quizName ?? widget.topic + ' Error'),
+          title: Text(widget.quizName ?? '${widget.topic} Error'),
         ),
         body: Center(
           child: Padding(
@@ -927,7 +986,7 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
     }
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.quizName ?? widget.topic + ' Challenge'),
+        title: Text(widget.quizName ?? '${widget.topic} Challenge'),
         actions: [
           if (widget.timedMode && !_completed)
             Chip(label: Text('$_secondsRemaining')),
@@ -940,16 +999,10 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
 
 class ChallengeScreen extends AIChallengeScreen {
   const ChallengeScreen({
-    required String topic,
-    required List<Map<String, dynamic>> questions,
-    String? quizName,
-    bool timedMode = true,
-    Key? key,
-  }) : super(
-          topic: topic,
-          questions: questions,
-          quizName: quizName,
-          timedMode: timedMode,
-          key: key,
-        );
+    required super.topic,
+    required super.questions,
+    super.quizName,
+    super.timedMode,
+    super.key,
+  });
 }

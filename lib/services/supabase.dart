@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:uuid/uuid.dart';
 import 'dart:convert';
 import 'package:neurobits/services/badge_service.dart';
+import 'package:neurobits/services/content_moderation_service.dart';
 
 class SupabaseService {
   static late final SupabaseClient client;
@@ -19,6 +20,22 @@ class SupabaseService {
     if (input.isEmpty) return false;
     if (isEmail) return _emailPattern.hasMatch(input);
     return _alphanumericWithSpaces.hasMatch(input);
+  }
+
+  static Future<String?> moderateContent(String input, {String? userId}) async {
+    if (input.isEmpty) return input;
+
+    final isAppropriate = await ContentModerationService.isAppropriateContent(
+      input,
+      userId: userId ?? client.auth.currentUser?.id,
+    );
+
+    if (!isAppropriate) {
+      debugPrint('Content moderation blocked inappropriate content');
+      return null;
+    }
+
+    return input;
   }
 
   static Future<void> init() async {
@@ -82,7 +99,7 @@ class SupabaseService {
 
   static Future<void> signIn(String email, String password) async {
     try {
-      await client.auth.signInWithPassword(
+      final response = await client.auth.signInWithPassword(
         email: email,
         password: password,
       );
@@ -92,7 +109,11 @@ class SupabaseService {
   }
 
   static Future<void> signOut() async {
-    await client.auth.signOut();
+    try {
+      await client.auth.signOut();
+    } catch (e) {
+      rethrow;
+    }
   }
 
   static int xpNeededForLevel(int level) {
@@ -204,17 +225,6 @@ class SupabaseService {
               newQ['type'] = 'input';
             }
           }
-          if (newQ['type'] == 'mcq' &&
-              newQ.containsKey('options') &&
-              newQ['options'] is List &&
-              newQ['solution'] is String) {
-            final opts = List<String>.from(newQ['options']);
-            final sol = newQ['solution'] as String;
-            final idx = opts.indexOf(sol);
-            if (idx != -1) {
-              newQ['solution'] = idx;
-            }
-          }
           if (!newQ.containsKey('title') || newQ['title'] == null) {
             newQ['title'] = q['title'] ?? q['question'] ?? '';
           }
@@ -235,10 +245,10 @@ class SupabaseService {
           final challengeData = {
             'id': dbChallengeId,
             'title': firstQuestion['question'] ?? 'AI Challenge',
-            'quiz_name': firstQuestion['quizName'] ?? null,
+            'quiz_name': firstQuestion['quizName'],
             'type': 'quiz',
             'difficulty': firstQuestion['difficulty'] ?? 'Medium',
-            'solution': firstQuestion['solution'] ?? null,
+            'solution': firstQuestion['solution'],
             'options': firstQuestion['options'] != null
                 ? jsonEncode(firstQuestion['options'])
                 : null,
@@ -288,11 +298,21 @@ class SupabaseService {
   }) async {
     final user = client.auth.currentUser;
     if (user == null) return;
-    quizId = sanitizeInput(quizId);
-    quizName = sanitizeInput(quizName);
+
+    final moderatedQuizId = await moderateContent(quizId);
+    final moderatedQuizName = await moderateContent(quizName);
+
+    if (moderatedQuizId == null || moderatedQuizName == null) {
+      throw Exception('Quiz contains inappropriate content');
+    }
+
+    quizId = moderatedQuizId;
+    quizName = moderatedQuizName;
+
     if (!isValidInput(quizId) || !isValidInput(quizName)) {
       throw Exception('Invalid quiz ID or name format');
     }
+
     final uuid = Uuid();
     final dbQuizId = uuid.v5(Uuid.NAMESPACE_URL,
         'neurobits:${user.id}:${quizName.toLowerCase().trim()}');
@@ -327,17 +347,6 @@ class SupabaseService {
           newQ['type'] = 'code';
         } else {
           newQ['type'] = 'input';
-        }
-      }
-      if (newQ['type'] == 'mcq' &&
-          newQ.containsKey('options') &&
-          newQ['options'] is List &&
-          newQ['solution'] is String) {
-        final opts = List<String>.from(newQ['options']);
-        final sol = newQ['solution'] as String;
-        final idx = opts.indexOf(sol);
-        if (idx != -1) {
-          newQ['solution'] = idx;
         }
       }
       if (!newQ.containsKey('title') || newQ['title'] == null) {
@@ -500,7 +509,7 @@ class SupabaseService {
         .from('user_progress')
         .select('completed')
         .eq('user_id', userId)
-        .order('updated_at', ascending: false)
+        .order('created_at', ascending: false)
         .limit(2);
     if (userProgress.length == 2 &&
         userProgress[1]['completed'] == false &&
@@ -536,13 +545,27 @@ class SupabaseService {
     required int total,
   }) async {
     final now = DateTime.now().toIso8601String();
-    final double avgAccuracy = total > 0 ? correct / total : 0;
-    await Supabase.instance.client.from('user_topic_stats').upsert({
+    final existing = await client
+        .from('user_topic_stats')
+        .select('attempts, correct, total')
+        .eq('user_id', userId)
+        .eq('topic_id', topicId)
+        .maybeSingle();
+    int newAttempts = 1;
+    int newCorrect = correct;
+    int newTotal = total;
+    if (existing != null) {
+      newAttempts = (existing['attempts'] as int? ?? 0) + 1;
+      newCorrect = (existing['correct'] as int? ?? 0) + correct;
+      newTotal = (existing['total'] as int? ?? 0) + total;
+    }
+    final double avgAccuracy = newTotal > 0 ? newCorrect / newTotal : 0;
+    await client.from('user_topic_stats').upsert({
       'user_id': userId,
       'topic_id': topicId,
-      'attempts': 1,
-      'correct': correct,
-      'total': total,
+      'attempts': newAttempts,
+      'correct': newCorrect,
+      'total': newTotal,
       'avg_accuracy': avgAccuracy,
       'last_attempted': now,
     }, onConflict: 'user_id,topic_id');
@@ -604,162 +627,38 @@ class SupabaseService {
         .select('adaptive_difficulty_enabled')
         .eq('id', userId)
         .maybeSingle();
-    if (profile == null || profile['adaptive_difficulty_enabled'] == null)
+    if (profile == null || profile['adaptive_difficulty_enabled'] == null) {
       return true;
+    }
     return profile['adaptive_difficulty_enabled'] as bool;
   }
 
   static Future<Map<String, dynamic>?> getUserById(String userId) async {
     final user = await client
         .from('users')
-        .select('id, username, email, xp, level, avatar_url')
+        .select('id, username, email, xp, level')
         .eq('id', userId)
         .maybeSingle();
     return user;
   }
 
-  static Future<List<Map<String, dynamic>>> searchUsersByUsernameOrEmail(
-      String query,
+  static Future<List<Map<String, dynamic>>> searchUsers(String query,
       {String? excludeUserId}) async {
-    query = sanitizeInput(query);
-    if (!isValidInput(query)) {
-      throw Exception('Invalid search query format');
-    }
     final result = await client
         .from('users')
-        .select('id, username, email, avatar_url')
+        .select('id, username, email')
         .ilike('username', '%$query%')
-        .or('email.ilike.%$query%')
         .neq('id', excludeUserId ?? '')
         .limit(10);
-    return result;
-  }
-
-  static Future<List<Map<String, dynamic>>> getFriends(String userId) async {
-    final result = await client.rpc('get_friends', params: {'user_id': userId});
     return List<Map<String, dynamic>>.from(result);
-  }
-
-  static Future<List<Map<String, dynamic>>> getFriendRequests(
-      String userId) async {
-    final result =
-        await client.rpc('get_friend_requests', params: {'user_id': userId});
-    return List<Map<String, dynamic>>.from(result);
-  }
-
-  static Future<void> sendFriendRequest(
-      {required String userId, required String friendId}) async {
-    await client.from('friends').upsert({
-      'user_id': userId,
-      'friend_id': friendId,
-      'status': 'pending',
-    });
-  }
-
-  static Future<void> respondToFriendRequest(
-      {required String userId,
-      required String friendId,
-      required String action}) async {
-    String status = action == 'accept'
-        ? 'accepted'
-        : (action == 'block' ? 'blocked' : 'declined');
-    await client
-        .from('friends')
-        .update({'status': status})
-        .eq('user_id', friendId)
-        .eq('friend_id', userId);
-  }
-
-  static Future<void> removeFriend(
-      {required String userId, required String friendId}) async {
-    await client
-        .from('friends')
-        .delete()
-        .or('user_id.eq.$userId,and(friend_id.eq.$friendId)')
-        .or('user_id.eq.$friendId,and(friend_id.eq.$userId)');
-  }
-
-  static Future<List<Map<String, dynamic>>> getOnlineFriends(
-      String userId) async {
-    final friends = await getFriends(userId);
-    final ids = friends.map((f) => f['id'] as String).toList();
-    if (ids.isEmpty) return [];
-    final online = await client
-        .from('user_status')
-        .select('user_id')
-        .in_('user_id', ids)
-        .eq('is_online', true);
-    return online;
-  }
-
-  static Future<Map<String, dynamic>?> createFriendChallenge({
-    required String initiatorId,
-    required String recipientId,
-    required Map<String, dynamic> quizData,
-  }) async {
-    final result = await client
-        .from('friend_challenges')
-        .insert({
-          'initiator_id': initiatorId,
-          'recipient_id': recipientId,
-          'quiz_data': quizData,
-          'status': 'pending',
-        })
-        .select()
-        .maybeSingle();
-    return result;
-  }
-
-  static Future<void> acceptFriendChallenge(String challengeId) async {
-    await client
-        .from('friend_challenges')
-        .update({'status': 'active', 'started_at': DateTime.now().toUtc()}).eq(
-            'id', challengeId);
-  }
-
-  static Future<void> declineFriendChallenge(String challengeId) async {
-    await client
-        .from('friend_challenges')
-        .update({'status': 'declined'}).eq('id', challengeId);
-  }
-
-  static Future<List<Map<String, dynamic>>> getActiveChallenges(
-      String userId) async {
-    return await client
-        .from('friend_challenges')
-        .select('*')
-        .or('initiator_id.eq.$userId,recipient_id.eq.$userId')
-        .in_('status', ['pending', 'active']);
-  }
-
-  static Future<void> submitFriendChallengeProgress({
-    required String challengeId,
-    required String userId,
-    required List<Map<String, dynamic>> answers,
-    required int score,
-  }) async {
-    await client.from('friend_challenge_progress').upsert({
-      'challenge_id': challengeId,
-      'user_id': userId,
-      'answers': answers,
-      'score': score,
-      'finished_at': DateTime.now().toUtc(),
-    });
-  }
-
-  static Future<List<Map<String, dynamic>>> getChallengeProgress(
-      String challengeId) async {
-    return await client
-        .from('friend_challenge_progress')
-        .select('*')
-        .eq('challenge_id', challengeId);
   }
 
   static Future<bool> checkAndAdvancePathStep(String userId) async {
     try {
       final userPathRes = await client
           .from('user_learning_paths')
-          .select('id, path_id, current_step, learning_paths(id, name)')
+          .select(
+              'id, path_id, current_step, learning_paths(id, name), ai_path_json')
           .eq('user_id', userId)
           .is_('completed_at', null)
           .maybeSingle();
@@ -770,6 +669,13 @@ class SupabaseService {
       }
       final userPathId = userPathRes['id'];
       final currentStep = userPathRes['current_step'] as int? ?? 1;
+      double passThreshold = 0.75;
+      final Map<String, dynamic>? meta =
+          (userPathRes['ai_path_json'] as Map<String, dynamic>?);
+      if (meta != null && meta['threshold'] != null) {
+        passThreshold = (meta['threshold'] as num).toDouble();
+      }
+      if (passThreshold < 0.5) passThreshold = 0.5;
       final pathId = userPathRes['path_id'];
       final learningPathName =
           userPathRes['learning_paths']?['name'] ?? 'Unknown Path';
@@ -810,10 +716,10 @@ class SupabaseService {
       final double accuracy = total > 0 ? correct / total : 0.0;
       debugPrint(
           '[checkAndAdvancePathStep] Topic stats for "$currentTopicName": correct=$correct, total=$total, accuracy=${accuracy.toStringAsFixed(2)}');
-      final bool hasPassedCurrentTopic = accuracy >= 0.75;
+      final bool hasPassedCurrentTopic = accuracy >= passThreshold;
       if (hasPassedCurrentTopic) {
         debugPrint(
-            '[checkAndAdvancePathStep] User $userId has passed the current topic "${currentTopicName}" (Required accuracy: 75%). Advancing step...');
+            '[checkAndAdvancePathStep] User $userId has passed the current topic "$currentTopicName" (Required accuracy: ${passThreshold.toStringAsFixed(2)}%). Advancing step...');
         await client
             .from('user_path_challenges')
             .update({'completed': true})
@@ -845,6 +751,29 @@ class SupabaseService {
       return false;
     } catch (e) {
       debugPrint('[checkAndAdvancePathStep] Error: $e');
+      return false;
+    }
+  }
+
+  static Future<bool> updateUserProfile(
+      Map<String, dynamic> profileData) async {
+    final user = client.auth.currentUser;
+    if (user == null) return false;
+
+    final moderatedData =
+        await ContentModerationService.moderateUserProfileData(
+      profileData,
+      userId: user.id,
+    );
+    if (moderatedData == null) {
+      return false;
+    }
+
+    try {
+      await client.from('users').update(moderatedData).eq('id', user.id);
+      return true;
+    } catch (e) {
+      debugPrint('Failed to update user profile: $e');
       return false;
     }
   }

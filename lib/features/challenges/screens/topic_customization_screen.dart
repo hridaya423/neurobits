@@ -4,8 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:neurobits/core/providers.dart';
 import 'package:neurobits/services/groq_service.dart';
-import 'package:neurobits/services/supabase.dart';
-import 'package:neurobits/core/learning_path_providers.dart';
 
 class TopicCustomizationScreen extends ConsumerStatefulWidget {
   final String topic;
@@ -265,8 +263,9 @@ class _TopicCustomizationScreenState
                               label: const Text('Easy'),
                               selected: _selectedDifficulty == 'Easy',
                               onSelected: (selected) {
-                                if (selected)
+                                if (selected) {
                                   setState(() => _selectedDifficulty = 'Easy');
+                                }
                               },
                             ),
                             const SizedBox(width: 8),
@@ -274,9 +273,10 @@ class _TopicCustomizationScreenState
                               label: const Text('Medium'),
                               selected: _selectedDifficulty == 'Medium',
                               onSelected: (selected) {
-                                if (selected)
+                                if (selected) {
                                   setState(
                                       () => _selectedDifficulty = 'Medium');
+                                }
                               },
                             ),
                             const SizedBox(width: 8),
@@ -284,8 +284,9 @@ class _TopicCustomizationScreenState
                               label: const Text('Hard'),
                               selected: _selectedDifficulty == 'Hard',
                               onSelected: (selected) {
-                                if (selected)
+                                if (selected) {
                                   setState(() => _selectedDifficulty = 'Hard');
+                                }
                               },
                             ),
                           ],

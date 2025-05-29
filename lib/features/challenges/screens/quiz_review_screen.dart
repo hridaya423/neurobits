@@ -7,12 +7,12 @@ class QuizReviewScreen extends StatefulWidget {
   final String? quizName;
   final String? topic;
   const QuizReviewScreen({
-    Key? key,
+    super.key,
     required this.questions,
     required this.selectedAnswers,
     this.quizName,
     this.topic,
-  }) : super(key: key);
+  });
   @override
   State<QuizReviewScreen> createState() => _QuizReviewScreenState();
 }
@@ -32,7 +32,11 @@ class _QuizReviewScreenState extends State<QuizReviewScreen> {
     try {
       final question = widget.questions[i];
       final questionText = question['question'] ?? '';
-      final solution = question['solution'] ?? question['answer'] ?? '';
+      final rawSolution = question['solution'] ?? question['answer'] ?? '';
+      final solution =
+          (question['solution'] is int && question['options'] != null)
+              ? (question['options'][question['solution']] as String)
+              : rawSolution.toString();
       if (questionText.isEmpty || solution.toString().isEmpty) {
         setState(() {
           _explanations[i] = 'Missing question or solution data.';
@@ -80,11 +84,17 @@ class _QuizReviewScreenState extends State<QuizReviewScreen> {
         itemBuilder: (context, i) {
           final q = widget.questions[i];
           final userAnswer = widget.selectedAnswers[i]?.toString() ?? '';
-          final correctAnswer = q['solution']?.toString() ??
-              q['answer']?.toString() ??
-              (q['options'] != null && q['solution'] is int
-                  ? q['options'][q['solution']]
-                  : '');
+          String correctAnswer;
+          if (q['solution'] is int && q['options'] != null) {
+            final opts = List<dynamic>.from(q['options']);
+            correctAnswer = opts[q['solution'] as int].toString();
+          } else if (q['solution'] != null) {
+            correctAnswer = q['solution'].toString();
+          } else if (q['answer'] != null) {
+            correctAnswer = q['answer'].toString();
+          } else {
+            correctAnswer = '';
+          }
           final isCorrect = userAnswer.trim().toLowerCase() ==
               correctAnswer.trim().toLowerCase();
           return Card(
@@ -130,11 +140,12 @@ class _QuizReviewScreenState extends State<QuizReviewScreen> {
                     Padding(
                       padding: const EdgeInsets.all(8.0),
                       child: Card(
-                        color: Colors.amber[50],
+                        color: Colors.grey[900],
                         child: Padding(
                           padding: const EdgeInsets.all(12.0),
                           child: Text(_explanations[i]!,
-                              style: const TextStyle(fontSize: 15)),
+                              style: const TextStyle(
+                                  fontSize: 15, color: Colors.white)),
                         ),
                       ),
                     ),

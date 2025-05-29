@@ -47,15 +47,6 @@ This project requires Flutter to be installed.
     flutter run
     ```
 
-## Project Structure (Key Directories)
-
-*   `lib/core`: Core utilities, router, widgets, providers.
-*   `lib/features`: Application features (e.g., onboarding, learning paths, daily challenges).
-*   `lib/services`: Services for interacting with external APIs (Supabase, Groq).
-*   `lib/models`: Data models used throughout the application.
-*   `assets`: Static assets like images, fonts, and the `.env` file configuration.
-
-
 ## License
 
 MIT LICENSE

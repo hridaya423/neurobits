@@ -3,12 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/learning_path_providers.dart';
 import '../../services/supabase.dart';
 import 'package:neurobits/services/groq_service.dart';
+
 class TweakLearningPathScreen extends ConsumerStatefulWidget {
-  const TweakLearningPathScreen({Key? key}) : super(key: key);
+  const TweakLearningPathScreen({super.key});
   @override
   ConsumerState<TweakLearningPathScreen> createState() =>
       _TweakLearningPathScreenState();
 }
+
 class _TweakLearningPathScreenState
     extends ConsumerState<TweakLearningPathScreen> {
   final _formKey = GlobalKey<FormState>();
@@ -17,6 +19,7 @@ class _TweakLearningPathScreenState
   late String _level;
   String? _emphasisTopic;
   double _emphasisWeight = 0.0;
+  late double _threshold;
   bool _loading = false;
   @override
   void initState() {
@@ -26,7 +29,12 @@ class _TweakLearningPathScreenState
       _durationDays = userPath['duration_days'] as int? ?? 7;
       _dailyMinutes = userPath['daily_minutes'] as int? ?? 10;
       _level = userPath['level'] as String? ?? 'Intermediate';
-      final metadata = userPath['metadata'] as Map<String, dynamic>?;
+      final Map<String, dynamic>? thresholdMeta =
+          userPath['metadata'] as Map<String, dynamic>?;
+      _threshold = thresholdMeta != null && thresholdMeta['threshold'] != null
+          ? (thresholdMeta['threshold'] as num).toDouble()
+          : 0.75;
+      final metadata = thresholdMeta;
       if (metadata != null && metadata.containsKey('emphasis')) {
         final Map<String, dynamic>? emphasis =
             metadata['emphasis'] as Map<String, dynamic>?;
@@ -39,8 +47,10 @@ class _TweakLearningPathScreenState
       _durationDays = 7;
       _dailyMinutes = 10;
       _level = 'Intermediate';
+      _threshold = 0.75;
     }
   }
+
   Future<void> _saveTweaks() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _loading = true);
@@ -55,6 +65,7 @@ class _TweakLearningPathScreenState
     } else {
       metadata.remove('emphasis');
     }
+    metadata['threshold'] = _threshold;
     try {
       await SupabaseService.client.from('user_learning_paths').update({
         'duration_days': _durationDays,
@@ -70,6 +81,14 @@ class _TweakLearningPathScreenState
           _dailyMinutes,
         );
         final List<dynamic> newPath = aiResponse['path'] ?? [];
+        final existingStatuses = await SupabaseService.client
+            .from('user_path_challenges')
+            .select('day, completed')
+            .eq('user_path_id', userPathId);
+        final Map<int, bool> statusMap = {
+          for (var c in existingStatuses)
+            (c['day'] as int): (c['completed'] as bool? ?? false)
+        };
         await SupabaseService.client
             .from('user_path_challenges')
             .delete()
@@ -82,7 +101,7 @@ class _TweakLearningPathScreenState
             'challenge_type': step['challenge_type'] ?? 'practice',
             'title': step['title'],
             'description': step['description'],
-            'completed': false,
+            'completed': statusMap[step['day']] ?? false,
           });
         }
       }
@@ -106,6 +125,7 @@ class _TweakLearningPathScreenState
       if (mounted) setState(() => _loading = false);
     }
   }
+
   @override
   Widget build(BuildContext context) {
     final userPath = ref.watch(userPathProvider);
@@ -194,6 +214,16 @@ class _TweakLearningPathScreenState
                         onChanged: (v) => setState(() => _emphasisWeight = v),
                       ),
                     ],
+                    const SizedBox(height: 16),
+                    Text('Pass Threshold (${(_threshold * 100).round()}%)'),
+                    Slider(
+                      value: _threshold,
+                      min: 0.5,
+                      max: 1.0,
+                      divisions: 10,
+                      label: '${(_threshold * 100).round()}%',
+                      onChanged: (v) => setState(() => _threshold = v),
+                    ),
                     const SizedBox(height: 24),
                     ElevatedButton(
                       onPressed: _saveTweaks,

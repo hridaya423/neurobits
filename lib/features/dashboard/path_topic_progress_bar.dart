@@ -5,12 +5,12 @@ class PathTopicProgressBar extends StatelessWidget {
   final String? topicName;
   final String? topicDescription;
   const PathTopicProgressBar({
-    Key? key,
+    super.key,
     required this.currentStep,
     required this.totalSteps,
     this.topicName,
     this.topicDescription,
-  }) : super(key: key);
+  });
   @override
   Widget build(BuildContext context) {
     final percent =

@@ -4,8 +4,7 @@ import '../../core/providers.dart';
 import '../../services/supabase.dart';
 class QuizPreferencesOnboardingScreen extends ConsumerStatefulWidget {
   final VoidCallback onComplete;
-  const QuizPreferencesOnboardingScreen({Key? key, required this.onComplete})
-      : super(key: key);
+  const QuizPreferencesOnboardingScreen({super.key, required this.onComplete});
   @override
   ConsumerState<QuizPreferencesOnboardingScreen> createState() =>
       _QuizPreferencesOnboardingScreenState();

@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
+
 class LearningPathChallengeCard extends StatelessWidget {
   final Map<String, dynamic> challenge;
   final bool isCurrent;
   const LearningPathChallengeCard({
-    Key? key,
+    super.key,
     required this.challenge,
     this.isCurrent = false,
-  }) : super(key: key);
+  });
   @override
   Widget build(BuildContext context) {
     return Card(

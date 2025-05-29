@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:neurobits/features/onboarding/streak_onboarding_screen.dart';
 import 'package:neurobits/services/supabase.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:neurobits/features/onboarding/streak_notification_service.dart';
 import 'learning_path_onboarding_screen.dart';
 import 'quiz_preferences_onboarding_screen.dart';
 
@@ -35,7 +33,7 @@ Future<void> syncOnboardingStatusFromBackend(WidgetRef ref) async {
 
 class OnboardingGate extends ConsumerStatefulWidget {
   final Widget child;
-  const OnboardingGate({Key? key, required this.child}) : super(key: key);
+  const OnboardingGate({super.key, required this.child});
   @override
   ConsumerState<OnboardingGate> createState() => _OnboardingGateState();
 }
@@ -71,7 +69,7 @@ class _OnboardingGateState extends ConsumerState<OnboardingGate> {
             onboardingComplete;
       }
       final bool shouldShowOnboarding =
-          user != null && (!onboardingComplete || streakGoal == null);
+          (!onboardingComplete || streakGoal == null);
       if (shouldShowOnboarding && mounted) {
         await showDialog(
           context: context,

@@ -1,5 +1,5 @@
 name: neurobits
-description: "A new Flutter project."
+description: "Learning made easy"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -68,6 +68,7 @@ flutter:
   assets:
     - .env
     - assets/share_congrats.png
+    - assets/neurobiticon.png
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in

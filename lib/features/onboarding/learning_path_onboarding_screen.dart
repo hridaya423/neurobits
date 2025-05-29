@@ -4,18 +4,34 @@ import '../../services/supabase.dart';
 import '../../core/providers.dart';
 import '../../core/learning_path_providers.dart';
 import 'custom_path_onboarding_screen.dart';
-import 'package:go_router/go_router.dart';
+
 final learningPathsProvider =
     FutureProvider<List<Map<String, dynamic>>>((ref) async {
-  final result = await SupabaseService.client
+  final currentUser = ref.watch(userProvider).value;
+  final query = SupabaseService.client
       .from('learning_paths')
       .select('id, name, description')
-      .eq('is_active', true)
-      .order('created_at');
+      .eq('is_active', true);
+  if (currentUser != null) {
+    final otherCustomRows = await SupabaseService.client
+        .from('user_learning_paths')
+        .select('path_id')
+        .eq('is_custom', true)
+        .neq('user_id', currentUser['id']);
+    final blockedIds = (otherCustomRows as List)
+        .map((e) => e['path_id']?.toString())
+        .whereType<String>()
+        .toList();
+    if (blockedIds.isNotEmpty) {
+      query.not('id', 'in', blockedIds);
+    }
+  }
+  final result = await query.order('created_at');
   return List<Map<String, dynamic>>.from(result);
 });
+
 class LearningPathOnboardingScreen extends ConsumerWidget {
-  const LearningPathOnboardingScreen({Key? key}) : super(key: key);
+  const LearningPathOnboardingScreen({super.key});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final pathsAsync = ref.watch(learningPathsProvider);

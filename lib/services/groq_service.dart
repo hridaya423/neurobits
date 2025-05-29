@@ -6,6 +6,54 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:neurobits/services/supabase.dart';
 import 'package:neurobits/core/learning_path_providers.dart';
+import 'package:neurobits/services/content_moderation_service.dart';
+
+class GroqApiError implements Exception {
+  final String message;
+  final bool isAuthError;
+  final bool isServerError;
+
+  GroqApiError(this.message,
+      {this.isAuthError = false, this.isServerError = false});
+
+  @override
+  String toString() => 'Groq API error: $message';
+
+  String toUserMessage() {
+    if (isAuthError) {
+      return 'There seems to be an issue with the API credentials. Please check your API key settings.';
+    } else if (isServerError) {
+      return 'The AI service is currently experiencing issues. Please try again later.';
+    } else {
+      return 'There was a problem connecting to the AI service: $message';
+    }
+  }
+
+  void showNotification(BuildContext context) {
+    ContentModerationService.showApiErrorNotification(context, toUserMessage());
+  }
+
+  static GroqApiError fromResponse(http.Response response) {
+    try {
+      final data = jsonDecode(response.body);
+      final errorMsg = data['error']?['message'] ?? 'Unknown error';
+      final errorType = data['error']?['type'] ?? '';
+      final errorCode = data['error']?['code'] ?? '';
+
+      final isAuth = errorCode == 'invalid_api_key' ||
+          errorMsg.contains('API Key') ||
+          response.statusCode == 401;
+
+      final isServer =
+          response.statusCode >= 500 || errorType == 'internal_server_error';
+
+      return GroqApiError(errorMsg,
+          isAuthError: isAuth, isServerError: isServer);
+    } catch (e) {
+      return GroqApiError('${response.statusCode}: ${response.body}');
+    }
+  }
+}
 
 class GroqService {
   static const String _baseUrl =
@@ -32,10 +80,50 @@ class GroqService {
         .trim();
   }
 
+  static String _filterThinkTags(String content) {
+    if (content.isEmpty) return content;
+
+    String filtered = content.replaceAll(
+        RegExp(r'<think[^>]*>.*?</think>', caseSensitive: false, dotAll: true),
+        '');
+
+    filtered =
+        filtered.replaceAll(RegExp(r'<think[^>]*>', caseSensitive: false), '');
+    filtered =
+        filtered.replaceAll(RegExp(r'</think>', caseSensitive: false), '');
+
+    filtered = filtered.replaceAll(RegExp(r'\n\s*\n\s*\n'), '\n\n');
+    filtered = filtered.trim();
+
+    return filtered;
+  }
+
   static bool isValidPromptInput(String input) {
     if (input.isEmpty) return false;
     if (input.length > 1000) return false;
     return _validInput && _validInputPattern.hasMatch(input);
+  }
+
+  static Future<String?> moderatePrompt(String prompt, {String? userId}) async {
+    if (prompt.isEmpty) return prompt;
+
+    final result = await ContentModerationService.moderateContent(
+      prompt,
+      userId: userId ?? SupabaseService.client.auth.currentUser?.id,
+    );
+
+    if (!result.isAppropriate) {
+      debugPrint(
+          'Prompt moderation blocked inappropriate content: ${result.message}');
+      throw Exception('Content moderation: ${result.message}');
+    }
+
+    if (result.isApiError) {
+      debugPrint('Content moderation API error: ${result.message}');
+    }
+
+    _validatePrompt(prompt);
+    return prompt;
   }
 
   static String _fixMixedQuotes(String jsonString) {
@@ -112,22 +200,23 @@ class GroqService {
           'Authorization': 'Bearer $_apiKey',
         },
         body: jsonEncode({
-          'model': 'llama-3.3-70b-versatile',
+          'model': 'deepseek-r1-distill-llama-70b',
           'messages': [
             {
               'role': 'system',
               'content':
-                  'You are an expert educational content generator specialized in creating multiple-choice quiz questions. Carefully follow the user\'s instructions and output a JSON array of quiz objects exactly as specified (fields: question, options, answer, difficulty), without additional commentary. Ensure questions are unique, clear, and challenging.'
+                  'You are an expert educational content generator specialized in creating multiple-choice quiz questions. Carefully follow the user\'s instructions and output a JSON array of quiz objects exactly as specified (fields: question, options, answer, difficulty), without additional commentary. Ensure questions are unique, clear, and challenging. Do NOT output any <think> tags or chain-of-thought reasoning; only provide the JSON result.'
             },
             {'role': 'user', 'content': prompt}
           ],
           'temperature': 0.7,
-          'max_tokens': 2048,
+          'max_tokens': 4000,
         }),
       );
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final content = data['choices'][0]['message']['content'];
+        final content =
+            _filterThinkTags(data['choices'][0]['message']['content']);
         try {
           String rawContent = content.trim();
           String cleanedContent = rawContent;
@@ -160,7 +249,7 @@ class GroqService {
           try {
             jsonDecode(cleanedContent);
           } catch (e) {
-            debugPrint('Initial JSON parsing failed: ' + e.toString());
+            debugPrint('Initial JSON parsing failed: $e');
             cleanedContent = _fixMixedQuotes(cleanedContent);
           }
           List<dynamic> parsedQuestions = [];
@@ -212,28 +301,30 @@ class GroqService {
             seenQuestions.add(questionText);
             uniqueQuestions.add(Map<String, dynamic>.from(q));
           }
-          debugPrint(
-              'Unique questions parsed: ' + uniqueQuestions.length.toString());
+          debugPrint('Unique questions parsed: ${uniqueQuestions.length}');
           for (final uq in uniqueQuestions) {
             debugPrint('Q: ' + (uq['question'] ?? ''));
           }
           if (uniqueQuestions.length < count) {
-            debugPrint('Warning: Only ' +
-                uniqueQuestions.length.toString() +
-                ' unique questions generated by Groq.');
+            debugPrint(
+                'Warning: Only ${uniqueQuestions.length} unique questions generated by Groq.');
           }
           return uniqueQuestions;
         } catch (e) {
-          debugPrint('Failed to parse Groq questions: ' + e.toString());
+          debugPrint('Failed to parse Groq questions: $e');
           rethrow;
         }
       } else {
-        debugPrint('Groq API error: ' + response.statusCode.toString());
-        throw Exception('Groq API error: ' + response.body);
+        debugPrint('Groq API error: ${response.statusCode}');
+        throw GroqApiError.fromResponse(response);
       }
     } catch (e) {
-      debugPrint('GroqService.generateQuestions error: ' + e.toString());
-      rethrow;
+      debugPrint('GroqService.generateQuestions error: $e');
+      if (e is GroqApiError) {
+        rethrow;
+      } else {
+        throw Exception('Failed to generate questions: $e');
+      }
     }
   }
 
@@ -305,22 +396,23 @@ class GroqService {
           'Authorization': 'Bearer $_apiKey',
         },
         body: jsonEncode({
-          'model': 'llama-3.3-70b-versatile',
+          'model': 'deepseek-r1-distill-llama-70b',
           'messages': [
             {
               'role': 'system',
               'content':
-                  'You are a leading educational content generator specializing in structured JSON quizzes. Follow the prompt instructions precisely and output only the JSON object with keys "quiz_name" and "questions". Do not include any extra text.'
+                  'You are a leading educational content generator specializing in structured JSON quizzes. Follow the prompt instructions precisely and output only the JSON object with keys "quiz_name" and "questions". Do not include any extra text. Do NOT output any <think> tags or chain-of-thought reasoning.'
             },
             {'role': 'user', 'content': prompt}
           ],
           'temperature': 0.7,
-          'max_tokens': 2048,
+          'max_tokens': 4000,
         }),
       );
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final content = data['choices'][0]['message']['content'];
+        final content =
+            _filterThinkTags(data['choices'][0]['message']['content']);
         try {
           String cleanedContent = content.trim();
           final startIndex = cleanedContent.indexOf('{');
@@ -355,8 +447,9 @@ class GroqService {
           for (final q in questions) {
             if (q is! Map) continue;
             final questionText = q['question']?.toString().trim() ?? '';
-            if (questionText.isEmpty || seenQuestions.contains(questionText))
+            if (questionText.isEmpty || seenQuestions.contains(questionText)) {
               continue;
+            }
             final type = q['type']?.toString().toLowerCase() ?? '';
             if (!_isValidQuestionType(type, includeCodeChallenges, includeMcqs,
                 includeInput, includeFillBlank)) {
@@ -394,8 +487,9 @@ class GroqService {
     if (includeMcqs) types.add('multiple-choice questions (type: mcq)');
     if (includeCodeChallenges) types.add('coding challenges (type: code)');
     if (includeInput) types.add('input questions (type: input)');
-    if (includeFillBlank)
+    if (includeFillBlank) {
       types.add('fill-in-the-blank questions (type: fill_blank)');
+    }
     if (types.isEmpty) {
       return 'No question types selected.';
     }
@@ -437,24 +531,28 @@ class GroqService {
         'Authorization': 'Bearer $_apiKey',
       },
       body: jsonEncode({
-        'model': 'llama-3.3-70b-versatile',
+        'model': 'deepseek-r1-distill-llama-70b',
         'messages': [
           {
             'role': 'system',
             'content':
-                'You are an experienced learning coach and performance analyst. Respond with a concise, personalized feedback paragraph addressing the user directly and providing actionable recommendations.'
+                'You are an experienced learning coach and performance analyst. Respond with a concise, personalized feedback paragraph addressing the user directly and providing actionable recommendations. Do NOT output any <think> tags or chain-of-thought reasoning.'
           },
           {'role': 'user', 'content': prompt},
         ],
-        'max_tokens': 256,
+        'max_tokens': 800,
         'temperature': 0.7,
       }),
     );
     if (response.statusCode == 200) {
       final result = jsonDecode(response.body);
-      return result['choices'][0]['message']['content'] as String;
+      String content = result['choices'][0]['message']['content'] as String;
+      content = _filterThinkTags(content);
+      content = content.replaceAll(RegExp(r'```[\s\S]*?```'), '');
+      content = content.replaceAll(RegExp(r'`(.+?)`'), r'$1');
+      return content.trim();
     } else {
-      throw Exception('Groq API error: ' + response.body);
+      throw Exception('Groq API error: ${response.body}');
     }
   }
 
@@ -475,7 +573,7 @@ class GroqService {
       throw Exception('Invalid daily minutes');
     }
     final systemPrompt =
-        '''You are a world-class curriculum designer and personalized learning path architect. Create a structured, multi-day learning path as a valid JSON object matching the exact format below. Do not include any additional commentary.
+        '''You are a world-class curriculum designer and personalized learning path architect. Do NOT output any <think> tags or chain-of-thought reasoning. Create a structured, multi-day learning path as a valid JSON object matching the exact format below. Do not include any additional commentary.
 {
   "path": [
     {
@@ -497,13 +595,13 @@ class GroqService {
           'Content-Type': 'application/json',
         },
         body: jsonEncode({
-          'model': 'llama-3.3-70b-versatile',
+          'model': 'deepseek-r1-distill-llama-70b',
           'messages': [
             {'role': 'system', 'content': systemPrompt},
             {'role': 'user', 'content': userPrompt}
           ],
           'temperature': 0.7,
-          'max_tokens': 2000,
+          'max_tokens': 4000,
         }),
       );
       if (response.statusCode != 200) {
@@ -523,7 +621,7 @@ class GroqService {
       content = content.substring(jsonStart, jsonEnd + 1);
       try {
         final pathData = jsonDecode(content);
-        if (!pathData.containsKey('path') || !(pathData['path'] is List)) {
+        if (!pathData.containsKey('path') || pathData['path'] is! List) {
           debugPrint('Missing path array');
           return _getFallbackPath(topic, level, durationDays);
         }
@@ -568,7 +666,6 @@ class GroqService {
   }
 
   static bool _validatePathItem(Map<String, dynamic> item) {
-    if (item == null) return false;
     final requiredFields = [
       'day',
       'topic',
@@ -582,7 +679,7 @@ class GroqService {
           .every((field) => item.containsKey(field) && item[field] != null)) {
         return false;
       }
-      if (!(item['day'] is int) || item['day'] < 1) {
+      if (item['day'] is! int || item['day'] < 1) {
         return false;
       }
       final challengeType = item['challenge_type'].toString().toLowerCase();
@@ -626,43 +723,6 @@ class GroqService {
     };
   }
 
-  static Future<String> explainAnswer(String question, String answer) async {
-    if (_apiKey == null) {
-      throw Exception('GROQ_API_KEY not configured');
-    }
-    final prompt = '''
-You are an expert tutor. Given the following question and answer, provide a clear, step-by-step, factual explanation of why the answer is correct. Do NOT use uncertain language, generic advice, or phrases like "maybe", "few", "could", etc. Your explanation must be direct, specific, and unambiguous. If the question is a math problem, show the full calculation. If the answer is incorrect, briefly explain why and give the correct answer.
-Question: $question
-Answer: $answer
-''';
-    final response = await http.post(
-      Uri.parse(_baseUrl),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $_apiKey',
-      },
-      body: jsonEncode({
-        'model': 'llama-3.3-70b-versatile',
-        'messages': [
-          {
-            'role': 'system',
-            'content':
-                'You are an expert tutor and subject matter expert. Provide a clear, step-by-step, factual explanation without uncertain language, generic advice, or filler. Output only the explanation text.'
-          },
-          {'role': 'user', 'content': prompt},
-        ],
-        'max_tokens': 256,
-        'temperature': 0.7,
-      }),
-    );
-    if (response.statusCode == 200) {
-      final result = jsonDecode(response.body);
-      return result['choices'][0]['message']['content'] as String;
-    } else {
-      throw Exception('Groq API error: ' + response.body);
-    }
-  }
-
   static Future<bool> isCodingRelated(String topic) async {
     if (_apiKey == null) {
       throw Exception('GROQ_API_KEY not configured');
@@ -682,17 +742,17 @@ Topic: "$topic"
         'Authorization': 'Bearer $_apiKey',
       },
       body: jsonEncode({
-        'model': 'llama-3.3-70b-versatile',
+        'model': 'deepseek-r1-distill-llama-70b',
         'messages': [
           {
             'role': 'system',
             'content':
-                'You are a precise classification assistant. Respond with only true or false based on whether the topic relates to programming or computer science.'
+                'You are a precise classification assistant. Respond with only true or false based on whether the topic relates to programming or computer science. Do NOT output any <think> tags or chain-of-thought reasoning.'
           },
           {'role': 'user', 'content': prompt}
         ],
         'temperature': 0.0,
-        'max_tokens': 5,
+        'max_tokens': 10,
       }),
     );
     if (response.statusCode == 200) {
@@ -789,7 +849,7 @@ Topic: "$topic"
     }
     debugPrint(
         "[prepareQuizData] GroqService.generateQuestions returned ${questions.length} questions.");
-    final quizName = topic + ' Quiz';
+    final quizName = '$topic Quiz';
     final routeKey =
         "${quizName.hashCode}_${DateTime.now().millisecondsSinceEpoch}";
     final extraData = {
@@ -836,6 +896,202 @@ Topic: "$topic"
     } catch (e) {
       debugPrint("Error fetching performance summary: $e");
       return null;
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>> generateQuizQuestions(
+      String topic, int numQuestions) async {
+    if (_apiKey == null) {
+      throw Exception('GROQ_API_KEY not configured');
+    }
+
+    final userId = SupabaseService.client.auth.currentUser?.id;
+    final moderatedTopic = await moderatePrompt(topic, userId: userId);
+    if (moderatedTopic == null) {
+      throw Exception('Topic contains inappropriate content');
+    }
+
+    topic = moderatedTopic;
+
+    const String difficulty = 'Medium';
+
+    numQuestions = min(numQuestions, 10);
+    final prompt =
+        '''Generate exactly $numQuestions multiple-choice questions about $topic.
+Each question must have:
+- A clear, specific question
+- Exactly 4 options (labeled A, B, C, D)
+- One correct answer
+''';
+    try {
+      final response = await http.post(
+        Uri.parse(_baseUrl),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_apiKey',
+        },
+        body: jsonEncode({
+          'model': 'deepseek-r1-distill-llama-70b',
+          'messages': [
+            {
+              'role': 'system',
+              'content':
+                  'You are an expert educational content generator specialized in creating multiple-choice quiz questions. Carefully follow the user\'s instructions and output a JSON array of quiz objects exactly as specified (fields: question, options, answer, difficulty), without additional commentary. Ensure questions are unique, clear, and challenging. Do NOT output any <think> tags or chain-of-thought reasoning; only provide the JSON result.'
+            },
+            {'role': 'user', 'content': prompt}
+          ],
+          'temperature': 0.7,
+          'max_tokens': 4000,
+        }),
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final content = data['choices'][0]['message']['content'];
+        try {
+          String rawContent = content.trim();
+          String cleanedContent = rawContent;
+          if (!cleanedContent.startsWith('[')) {
+            final startIndex = cleanedContent.indexOf('[');
+            if (startIndex >= 0) {
+              cleanedContent = cleanedContent.substring(startIndex);
+            } else {
+              throw FormatException('Response does not contain a JSON array');
+            }
+          }
+          if (!cleanedContent.endsWith(']')) {
+            final endIndex = cleanedContent.lastIndexOf(']');
+            if (endIndex >= 0) {
+              cleanedContent = cleanedContent.substring(0, endIndex + 1);
+            } else {
+              throw FormatException(
+                  'Response does not contain a complete JSON array');
+            }
+          }
+          cleanedContent =
+              cleanedContent.replaceAll("'question':", '"question":');
+          cleanedContent =
+              cleanedContent.replaceAll("'options':", '"options":');
+          cleanedContent =
+              cleanedContent.replaceAll("'solution':", '"solution":');
+          cleanedContent = cleanedContent.replaceAll("'title':", '"title":');
+          cleanedContent = cleanedContent.replaceAll(
+              "'estimated_time_seconds':", '"estimated_time_seconds":');
+          try {
+            jsonDecode(cleanedContent);
+          } catch (e) {
+            debugPrint('Initial JSON parsing failed: $e');
+            cleanedContent = _fixMixedQuotes(cleanedContent);
+          }
+          List<dynamic> parsedQuestions = [];
+          try {
+            parsedQuestions = jsonDecode(cleanedContent);
+          } on FormatException catch (e) {
+            debugPrint("--- Groq JSON Parsing Error ---");
+            debugPrint("Error: $e");
+            debugPrint("--- Raw Content Start ---");
+            debugPrint(rawContent);
+            debugPrint("--- Raw Content End ---");
+            debugPrint("--- Cleaned Content Attempt Start ---");
+            debugPrint(cleanedContent);
+            debugPrint("--- Cleaned Content Attempt End ---");
+            return [];
+          }
+          final seenQuestions = <String>{};
+          final uniqueQuestions = <Map<String, dynamic>>[];
+          for (final q in parsedQuestions) {
+            if (q is! Map) continue;
+            final questionText = q['question']?.toString().trim() ?? '';
+            final options = q['options'];
+            final answer = q['answer'];
+            if (questionText.isEmpty || seenQuestions.contains(questionText)) {
+              debugPrint('Skipping duplicate or empty question: $questionText');
+              continue;
+            }
+            if (options is! List ||
+                options.length != 4 ||
+                options.any((opt) => opt is! String)) {
+              debugPrint(
+                  'Skipping question due to invalid options format: $questionText');
+              continue;
+            }
+            final optionsList = List<String>.from(options);
+            if (answer is! String ||
+                answer.isEmpty ||
+                !optionsList.contains(answer)) {
+              debugPrint(
+                  'Skipping question due to invalid answer format or mismatch: $questionText\nAnswer received: $answer\nOptions: $optionsList');
+              continue;
+            }
+            final difficultyField = q['difficulty']?.toString() ?? '';
+            if (difficultyField.isEmpty || difficultyField != difficulty) {
+              debugPrint(
+                  'Skipping question due to difficulty mismatch: $questionText (Expected: $difficulty, Got: $difficultyField)');
+              continue;
+            }
+            seenQuestions.add(questionText);
+            uniqueQuestions.add(Map<String, dynamic>.from(q));
+          }
+          debugPrint('Unique questions parsed: ${uniqueQuestions.length}');
+          for (final uq in uniqueQuestions) {
+            debugPrint('Q: ' + (uq['question'] ?? ''));
+          }
+          if (uniqueQuestions.length < numQuestions) {
+            debugPrint(
+                'Warning: Only ${uniqueQuestions.length} unique questions generated by Groq.');
+          }
+          return uniqueQuestions;
+        } catch (e) {
+          debugPrint('Failed to parse Groq questions: $e');
+          rethrow;
+        }
+      } else {
+        debugPrint('Groq API error: ${response.statusCode}');
+        throw Exception('Groq API error: ${response.body}');
+      }
+    } catch (e) {
+      debugPrint('GroqService.generateQuizQuestions error: $e');
+      rethrow;
+    }
+  }
+
+  static Future<String> explainAnswer(String question, String answer) async {
+    if (_apiKey == null) {
+      throw Exception('GROQ_API_KEY not configured');
+    }
+    final prompt = '''
+You are an expert tutor. Given the following question and answer, provide a clear, step-by-step, factual explanation of why the answer is correct. Do NOT use uncertain language, generic advice, or phrases like "maybe", "few", "could", etc. Your explanation must be direct, specific, and unambiguous. If the question is a math problem, show the full calculation. If the answer is incorrect, briefly explain why and give the correct answer.
+Question: $question
+Answer: $answer
+''';
+    final response = await http.post(
+      Uri.parse(_baseUrl),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $_apiKey',
+      },
+      body: jsonEncode({
+        'model': 'deepseek-r1-distill-llama-70b',
+        'messages': [
+          {
+            'role': 'system',
+            'content':
+                'You are an expert tutor and subject matter expert. Provide a clear, step-by-step, factual explanation without uncertain language, generic advice, or filler. Output only the explanation text. Do NOT output any <think> tags or chain-of-thought reasoning. Do NOT use markdown formatting; only plain text.'
+          },
+          {'role': 'user', 'content': prompt},
+        ],
+        'max_tokens': 2000,
+        'temperature': 0.7,
+      }),
+    );
+    if (response.statusCode == 200) {
+      final result = jsonDecode(response.body);
+      String content = result['choices'][0]['message']['content'] as String;
+      content = _filterThinkTags(content);
+      content = content.replaceAll(RegExp(r'```[\s\S]*?```'), '');
+      content = content.replaceAll(RegExp(r'`(.+?)`'), r'$1');
+      return content.trim();
+    } else {
+      throw Exception('Groq API error: ${response.body}');
     }
   }
 }

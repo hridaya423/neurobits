@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 class StreakOnboardingScreen extends ConsumerWidget {
   final void Function(int streakGoal, bool adaptiveDifficulty) onComplete;
-  const StreakOnboardingScreen({Key? key, required this.onComplete}) : super(key: key);
+  const StreakOnboardingScreen({super.key, required this.onComplete});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final selectedGoal = ref.watch(_selectedGoalProvider);
@@ -44,7 +44,7 @@ class StreakOnboardingScreen extends ConsumerWidget {
               child: ElevatedButton(
                 onPressed: selectedGoal == null
                     ? null
-                    : () => onComplete(selectedGoal!, adaptiveDifficulty),
+                    : () => onComplete(selectedGoal, adaptiveDifficulty),
                 child: const Text('Continue'),
               ),
             ),

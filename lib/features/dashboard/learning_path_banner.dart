@@ -6,12 +6,12 @@ class LearningPathBanner extends StatelessWidget {
   final int totalSteps;
   final VoidCallback onChangePath;
   const LearningPathBanner({
-    Key? key,
+    super.key,
     required this.path,
     required this.currentStep,
     required this.totalSteps,
     required this.onChangePath,
-  }) : super(key: key);
+  });
   String _capitalizeTopicName(String topic) {
     if (topic.isEmpty) return topic;
     final words = topic.split(' ');

@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers.dart';
 import '../../core/learning_path_providers.dart';
-import '../../services/supabase.dart';
 class CompletedPathsScreen extends ConsumerWidget {
-  const CompletedPathsScreen({Key? key}) : super(key: key);
+  const CompletedPathsScreen({super.key});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(userProvider).value;
@@ -55,8 +54,7 @@ class CompletedPathDetailScreen extends StatelessWidget {
   final Map<String, dynamic> path;
   final Map<String, dynamic> userPath;
   const CompletedPathDetailScreen(
-      {Key? key, required this.path, required this.userPath})
-      : super(key: key);
+      {super.key, required this.path, required this.userPath});
   @override
   Widget build(BuildContext context) {
     return Scaffold(

@@ -1,10 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:neurobits/services/groq_service.dart';
 import 'package:neurobits/services/supabase.dart';
-import 'package:neurobits/features/challenges/screens/quiz_screen.dart';
-import 'dart:convert';
 
 class ChallengeLoaderScreen extends ConsumerStatefulWidget {
   final dynamic challengeData;
@@ -46,7 +45,7 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         final challengeId = data['id'] ?? UniqueKey().toString();
         context.go(
-          '/challenge/${challengeId}/_loaded',
+          '/challenge/$challengeId/_loaded',
           extra: data,
         );
       });
@@ -202,21 +201,20 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
     }
     final currentRoute = GoRouterState.of(context).uri.toString();
     final challengeId = _parsedChallengeData?['id'] ?? UniqueKey().toString();
-    final loadedRoute = '/challenge/${challengeId}/_loaded';
+    final loadedRoute = '/challenge/$challengeId/_loaded';
     if (currentRoute == loadedRoute) {
-      debugPrint(
-          'Already on loaded route ${loadedRoute}, not navigating again.');
+      debugPrint('Already on loaded route $loadedRoute, not navigating again.');
       return;
     }
     if (!loadedRoute.endsWith('_loaded')) {
       debugPrint(
-          'ERROR: Attempted to navigate to non-loaded route: ${loadedRoute}');
+          'ERROR: Attempted to navigate to non-loaded route: $loadedRoute');
       return;
     }
     debugPrint(
-        'Navigating from ${currentRoute} to ${loadedRoute} with questions: ${questions.length}');
+        'Navigating from $currentRoute to $loadedRoute with questions: ${questions.length}');
     context.go(
-      '/challenge/${challengeId}/_loaded',
+      '/challenge/$challengeId/_loaded',
       extra: {
         ...?_parsedChallengeData,
         'questions': questions,
@@ -284,7 +282,19 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
                 ),
               );
             } else if (snapshot.hasError) {
-              _setError("Error generating questions: ${snapshot.error}");
+              String errorMessage = "Error generating questions";
+              if (snapshot.error is GroqApiError) {
+                final groqError = snapshot.error as GroqApiError;
+                errorMessage = groqError.toUserMessage();
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) {
+                    groqError.showNotification(context);
+                  }
+                });
+              } else {
+                errorMessage = "Error generating questions: ${snapshot.error}";
+              }
+              _setError(errorMessage);
               return const Center(child: CircularProgressIndicator());
             } else if (snapshot.hasData && snapshot.data!.isNotEmpty) {
               _navigateToChallenge(snapshot.data!);
@@ -303,3 +313,5 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
     );
   }
 }
+
+

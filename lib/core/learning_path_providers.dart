@@ -2,7 +2,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:neurobits/services/supabase.dart';
 import 'package:neurobits/core/providers.dart';
 import 'package:flutter/foundation.dart';
-import 'dart:convert';
 
 final userPathProvider = StateProvider<Map<String, dynamic>?>((ref) {
   return null;

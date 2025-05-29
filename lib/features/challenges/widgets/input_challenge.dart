@@ -6,12 +6,12 @@ class InputChallenge extends StatefulWidget {
   final Function(String) onSubmitted;
   final String? title;
   const InputChallenge({
-    Key? key,
+    super.key,
     required this.question,
     required this.solution,
     required this.onSubmitted,
     this.title,
-  }) : super(key: key);
+  });
   @override
   State<InputChallenge> createState() => _InputChallengeState();
 }

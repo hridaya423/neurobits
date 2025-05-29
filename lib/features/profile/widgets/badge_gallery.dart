@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:neurobits/services/badge_service.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 class BadgeGalleryScreen extends StatefulWidget {
   final String userId;
-  const BadgeGalleryScreen({Key? key, required this.userId}) : super(key: key);
+  const BadgeGalleryScreen({super.key, required this.userId});
   @override
   State<BadgeGalleryScreen> createState() => _BadgeGalleryScreenState();
 }

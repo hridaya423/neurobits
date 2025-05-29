@@ -7,10 +7,17 @@ import 'package:neurobits/services/groq_service.dart';
 import 'package:neurobits/core/widgets/splash_screen.dart';
 import 'package:neurobits/features/onboarding/onboarding_gate.dart';
 import 'package:neurobits/core/learning_path_providers.dart';
+import 'package:neurobits/services/content_moderation_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await dotenv.load();
+  try {
+    await dotenv.load(fileName: ".env");
+    debugPrint("Loaded .env file successfully");
+  } catch (e) {
+    debugPrint("Error loading .env file: $e");
+  }
+  await ContentModerationService.init();
   await GroqService.init();
   await SupabaseService.init();
   runApp(const ProviderScope(child: MyApp()));
@@ -46,7 +53,7 @@ class _SplashWrapper extends StatefulWidget {
 
 class _SplashWrapperState extends State<_SplashWrapper> {
   bool _showSplash = true;
-  bool _statsLoaded = false;
+  final bool _statsLoaded = false;
   DateTime? _splashStart;
 
   @override

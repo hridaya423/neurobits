@@ -5,10 +5,9 @@ import '../../core/providers.dart';
 import '../../services/supabase.dart';
 import '../../services/groq_service.dart';
 import '../../core/learning_path_providers.dart';
-import 'learning_path_onboarding_screen.dart';
 
 class CustomPathOnboardingScreen extends ConsumerStatefulWidget {
-  const CustomPathOnboardingScreen({Key? key}) : super(key: key);
+  const CustomPathOnboardingScreen({super.key});
 
   @override
   ConsumerState<CustomPathOnboardingScreen> createState() =>
@@ -76,8 +75,9 @@ class _CustomPathOnboardingScreenState
       );
 
       final List<dynamic> path = aiResponse['path'] ?? [];
-      if (path.isEmpty)
+      if (path.isEmpty) {
         throw Exception('AI did not return a valid learning path.');
+      }
 
       final pathRes = await SupabaseService.client
           .from('learning_paths')
@@ -91,49 +91,41 @@ class _CustomPathOnboardingScreenState
 
       final pathId = pathRes['id'];
 
-      // Get all unique topic names from the AI response
       final topicNames =
           path.map((step) => step['topic'] as String).toSet().toList();
 
-      // Ensure all topics exist in the 'topics' table and get their IDs
-      final topicIds = <String, String>{}; // Map topic name to topic ID
+      final topicIds = <String, String>{};
       for (final name in topicNames) {
-        if (name.trim().isEmpty) continue; // Skip empty topic names
+        if (name.trim().isEmpty) continue;
 
         try {
-          // Try to find the topic (case-insensitive search can be helpful)
           final existingTopic = await SupabaseService.client
               .from('topics')
               .select('id')
-              .ilike('name',
-                  name.trim()) // Use ilike for case-insensitive matching
+              .ilike('name', name.trim())
               .maybeSingle();
 
           if (existingTopic != null) {
             topicIds[name] = existingTopic['id'];
           } else {
-            // Insert the new topic if it doesn't exist
             debugPrint("Topic '$name' not found, inserting into topics table.");
             final newTopic = await SupabaseService.client
                 .from('topics')
-                .insert({'name': name.trim()}) // Ensure name is trimmed
+                .insert({'name': name.trim()})
                 .select('id')
                 .single();
             topicIds[name] = newTopic['id'];
           }
         } catch (e, s) {
           debugPrint("Error finding or creating topic '$name': $e\n$s");
-          // Decide how to handle: throw error, skip topic, etc.
-          // For now, we'll skip steps related to this problematic topic.
         }
       }
 
       for (final step in path) {
         final topicName = step['topic'] as String;
-        final topicId = topicIds[topicName]; // Get the ID from our map
+        final topicId = topicIds[topicName];
 
         if (topicId == null) {
-          // This topic might have been skipped due to an error above or empty name
           debugPrint(
               "Skipping step for topic '$topicName' as topic_id was not found/created.");
           continue;
@@ -141,7 +133,7 @@ class _CustomPathOnboardingScreenState
 
         await SupabaseService.client.from('learning_path_topics').insert({
           'path_id': pathId,
-          'topic_id': topicId, // <-- Use topic_id here
+          'topic_id': topicId,
           'step_number': step['day'],
           'description': step['description'],
         });

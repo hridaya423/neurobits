@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 class QuizSettingsDialog extends StatefulWidget {
   final String topic;
-  const QuizSettingsDialog({Key? key, required this.topic}) : super(key: key);
+  const QuizSettingsDialog({super.key, required this.topic});
   @override
   _QuizSettingsDialogState createState() => _QuizSettingsDialogState();
 }

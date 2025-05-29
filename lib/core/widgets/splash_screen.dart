@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:neurobits/services/groq_service.dart';
 import 'package:neurobits/services/supabase.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SplashScreen extends StatefulWidget {
   final VoidCallback onFinish;
@@ -97,7 +96,7 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.background,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       body: Center(
         child: FadeTransition(
           opacity: _fadeIn,
@@ -109,14 +108,7 @@ class _SplashScreenState extends State<SplashScreen>
                 height: 110,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    colors: [
-                      Theme.of(context).colorScheme.primary,
-                      Theme.of(context).colorScheme.secondary
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
+                  color: Colors.white,
                   boxShadow: [
                     BoxShadow(
                       color: Theme.of(context)
@@ -129,7 +121,11 @@ class _SplashScreenState extends State<SplashScreen>
                   ],
                 ),
                 child: Center(
-                  child: Icon(Icons.bolt, size: 60, color: Colors.white),
+                  child: Image.asset(
+                    'assets/neurobiticon.png',
+                    width: 60,
+                    height: 60,
+                  ),
                 ),
               ),
               const SizedBox(height: 24),

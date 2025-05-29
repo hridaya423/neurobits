@@ -4,17 +4,15 @@ import 'package:neurobits/core/providers.dart' hide userPreferencesProvider;
 import 'package:neurobits/services/supabase.dart';
 import 'package:neurobits/services/badge_service.dart';
 import '../widgets/badge_gallery.dart';
-import 'package:intl/intl.dart';
-import 'friends_page.dart';
-import '../../onboarding/streak_onboarding_screen.dart';
 import 'package:neurobits/core/providers.dart'
     show userProvider, userPreferencesProvider;
-import 'package:supabase_flutter/supabase_flutter.dart';
+
 class ProfileScreen extends ConsumerStatefulWidget {
-  const ProfileScreen({Key? key}) : super(key: key);
+  const ProfileScreen({super.key});
   @override
   ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
 }
+
 class _ProfileScreenState extends ConsumerState<ProfileScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
@@ -22,16 +20,19 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     ref.invalidate(userStatsProvider);
     ref.invalidate(userProvider);
   }
+
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 2, vsync: this);
   }
+
   @override
   void dispose() {
     _tabController.dispose();
     super.dispose();
   }
+
   @override
   Widget build(BuildContext context) {
     final userAsyncValue = ref.watch(userProvider);
@@ -43,20 +44,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
           controller: _tabController,
           tabs: const [
             Tab(text: 'Overview'),
-            Tab(text: 'Friends'),
             Tab(text: 'Settings'),
           ],
         ),
       ),
       body: Column(
         children: [
-          ChallengeInviteBanner(),
           Expanded(
             child: TabBarView(
               controller: _tabController,
               children: [
                 _ProfileOverviewTab(),
-                FriendsPage(showScaffold: false),
                 _ProfileSettingsTab(),
               ],
             ),
@@ -66,6 +64,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     );
   }
 }
+
 class _ProfileOverviewTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -295,6 +294,7 @@ class _ProfileOverviewTab extends ConsumerWidget {
     );
   }
 }
+
 class _ProfileSettingsTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -312,7 +312,10 @@ class _ProfileSettingsTab extends ConsumerWidget {
     );
   }
 }
+
 class StreakGoalSection extends ConsumerWidget {
+  const StreakGoalSection({super.key});
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final userAsyncValue = ref.watch(userProvider);
@@ -372,7 +375,10 @@ class StreakGoalSection extends ConsumerWidget {
     );
   }
 }
+
 class AdaptiveDifficultySection extends ConsumerWidget {
+  const AdaptiveDifficultySection({super.key});
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final userAsyncValue = ref.watch(userProvider);
@@ -423,7 +429,10 @@ class AdaptiveDifficultySection extends ConsumerWidget {
     );
   }
 }
+
 class NotificationSettingsSection extends ConsumerWidget {
+  const NotificationSettingsSection({super.key});
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final userAsyncValue = ref.watch(userProvider);
@@ -494,8 +503,9 @@ class NotificationSettingsSection extends ConsumerWidget {
     );
   }
 }
+
 class QuizSettingsSection extends ConsumerWidget {
-  QuizSettingsSection({Key? key}) : super(key: key);
+  QuizSettingsSection({super.key});
   final List<int> questionCountOptions = [3, 5, 10, 15, 20, 25, 50];
   final List<String> difficultyOptions = ['Easy', 'Medium', 'Hard'];
   final List<int> timePerQuestionOptions = [
@@ -521,17 +531,18 @@ class QuizSettingsSection extends ConsumerWidget {
       await SupabaseService.client.from('user_quiz_preferences').upsert({
         'user_id': user['id'],
         key: value,
-        'updated_at': DateTime.now().toIso8601String(),
       }, onConflict: 'user_id');
       ref.refresh(userPreferencesProvider);
     } catch (e) {
       debugPrint("Error saving preference '$key': $e");
     }
   }
+
   Future<void> _saveAllowedChallengeTypes(
       WidgetRef ref, List<String> types) async {
     await _savePreference(ref, 'allowed_challenge_types', types);
   }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final preferencesAsync = ref.watch(userPreferencesProvider);
@@ -704,6 +715,7 @@ class QuizSettingsSection extends ConsumerWidget {
     );
   }
 }
+
 class _ProfileStatCard extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -742,6 +754,7 @@ class _ProfileStatCard extends StatelessWidget {
     );
   }
 }
+
 class _StreakInfoSection extends StatelessWidget {
   final Map<String, dynamic> stats;
   const _StreakInfoSection({required this.stats});
@@ -768,6 +781,7 @@ class _StreakInfoSection extends StatelessWidget {
     );
   }
 }
+
 class _StreakBadge extends StatelessWidget {
   final IconData icon;
   final String label;
