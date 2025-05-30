@@ -40,7 +40,7 @@ dependencies:
   flutter_local_notifications: ^17.1.2
   timezone: ^0.9.2
   drag_and_drop_lists: ^0.4.2
-  share_plus: ^7.2.1
+  share_plus: ^11.0.0
   shimmer: ^2.0.0
 
   # The following adds the Cupertino Icons font to your application.

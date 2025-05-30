@@ -313,5 +313,3 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
     );
   }
 }
-
-

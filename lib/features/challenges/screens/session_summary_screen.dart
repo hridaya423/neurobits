@@ -181,9 +181,13 @@ class _SessionSummaryScreenState extends ConsumerState<SessionSummaryScreen> {
                       final file =
                           await File('${tempDir.path}/share_congrats.png')
                               .writeAsBytes(bytes.buffer.asUint8List());
-                      await Share.shareXFiles([XFile(file.path)],
+                      await SharePlus.instance.share(
+                        ShareParams(
                           text: shareText,
-                          subject: 'Celebrate my Neurobits Achievement!');
+                          files: [XFile(file.path)],
+                          subject: 'Celebrate my Neurobits Achievement!',
+                        ),
+                      );
                     },
                     icon: const Icon(Icons.share),
                     label: const Text('Share Results'),
