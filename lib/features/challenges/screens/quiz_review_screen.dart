@@ -129,7 +129,8 @@ class _QuizReviewScreenState extends State<QuizReviewScreen> {
                     icon: const Icon(Icons.lightbulb),
                     label: const Text('Explain'),
                     style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange),
+                        backgroundColor: Colors.grey,
+                        foregroundColor: Colors.white),
                   ),
                   if (_loading[i])
                     const Padding(

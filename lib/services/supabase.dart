@@ -274,7 +274,6 @@ class SupabaseService {
         'time_taken_seconds': timeTakenSeconds,
         'accuracy': accuracy,
         'original_id': dbChallengeId,
-        'created_at': DateTime.now().toIso8601String(),
       });
       if (success) {
         await updateStreak(userId: user.id, activityDate: DateTime.now());
@@ -393,7 +392,6 @@ class SupabaseService {
       'time_taken_seconds': timeTakenSeconds,
       'accuracy': accuracy,
       'original_id': dbQuizId,
-      'created_at': DateTime.now().toIso8601String(),
     });
     if (topicId != null) {
       await updateUserTopicStats(
@@ -511,7 +509,6 @@ class SupabaseService {
         .from('user_progress')
         .select('completed')
         .eq('user_id', userId)
-        .order('created_at', ascending: false)
         .limit(5);
 
     if (userProgress.isNotEmpty && userProgress[0]['completed'] == true) {
