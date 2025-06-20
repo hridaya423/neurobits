@@ -97,6 +97,16 @@ class _TopicCustomizationScreenState
     debugPrint(
         "[_generateQuiz] Starting quiz generation via customization screen...");
     if (!mounted) return;
+
+    if (widget.topic.trim().length < 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text(
+                'Topic is too short. Please enter at least 2 characters.')),
+      );
+      return;
+    }
+
     setState(() {
       _isLoading = true;
     });
@@ -134,7 +144,9 @@ class _TopicCustomizationScreenState
           _isLoading = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to generate quiz: $e')),
+          SnackBar(
+              content: Text(
+                  'Unable to create quiz. Please try again with different settings.')),
         );
       }
     }
@@ -309,7 +321,7 @@ class _TopicCustomizationScreenState
                                       }
                                     : null,
                               ),
-                              Text('Code',
+                              Text('Code Challenges',
                                   style: TextStyle(
                                       color: _isCodingRelated!
                                           ? null
@@ -320,7 +332,7 @@ class _TopicCustomizationScreenState
                                   height: 24,
                                   child: CircularProgressIndicator(
                                       strokeWidth: 2)),
-                              const Text('Code',
+                              const Text('Code Challenges',
                                   style: TextStyle(color: Colors.grey)),
                             ],
                             const SizedBox(width: 16),
@@ -332,7 +344,7 @@ class _TopicCustomizationScreenState
                                 });
                               },
                             ),
-                            const Text('MCQ'),
+                            const Text('Multiple Choice (MCQ)'),
                             const SizedBox(width: 16),
                             Checkbox(
                               value: _includeInput,
@@ -342,7 +354,7 @@ class _TopicCustomizationScreenState
                                 });
                               },
                             ),
-                            const Text('Input'),
+                            const Text('Input Questions'),
                             const SizedBox(width: 16),
                             Checkbox(
                               value: _includeFillBlank,
@@ -352,7 +364,7 @@ class _TopicCustomizationScreenState
                                 });
                               },
                             ),
-                            const Text('Fill Blank'),
+                            const Text('Fill in the Blank'),
                           ],
                         ),
                         if (!validTypeSelected)

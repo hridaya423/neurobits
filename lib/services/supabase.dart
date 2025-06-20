@@ -274,6 +274,7 @@ class SupabaseService {
         'time_taken_seconds': timeTakenSeconds,
         'accuracy': accuracy,
         'original_id': dbChallengeId,
+        'created_at': DateTime.now().toIso8601String(),
       });
       if (success) {
         await updateStreak(userId: user.id, activityDate: DateTime.now());
@@ -392,6 +393,7 @@ class SupabaseService {
       'time_taken_seconds': timeTakenSeconds,
       'accuracy': accuracy,
       'original_id': dbQuizId,
+      'created_at': DateTime.now().toIso8601String(),
     });
     if (topicId != null) {
       await updateUserTopicStats(
@@ -510,12 +512,21 @@ class SupabaseService {
         .select('completed')
         .eq('user_id', userId)
         .order('created_at', ascending: false)
-        .limit(2);
-    if (userProgress.length == 2 &&
-        userProgress[1]['completed'] == false &&
-        userProgress[0]['completed'] == true) {
-      await BadgeService.awardBadgeToUser(
-          userId: userId, badgeId: comebackBadgeId);
+        .limit(5);
+
+    if (userProgress.isNotEmpty && userProgress[0]['completed'] == true) {
+      bool hadRecentFailure = false;
+      for (int i = 1; i < userProgress.length; i++) {
+        if (userProgress[i]['completed'] == false) {
+          hadRecentFailure = true;
+          break;
+        }
+      }
+
+      if (hadRecentFailure && userProgress.length >= 2) {
+        await BadgeService.awardBadgeToUser(
+            userId: userId, badgeId: comebackBadgeId);
+      }
     }
   }
 

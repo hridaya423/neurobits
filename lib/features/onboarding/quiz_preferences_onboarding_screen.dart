@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers.dart';
 import '../../services/supabase.dart';
+
 class QuizPreferencesOnboardingScreen extends ConsumerStatefulWidget {
   final VoidCallback onComplete;
   const QuizPreferencesOnboardingScreen({super.key, required this.onComplete});
@@ -9,6 +10,7 @@ class QuizPreferencesOnboardingScreen extends ConsumerStatefulWidget {
   ConsumerState<QuizPreferencesOnboardingScreen> createState() =>
       _QuizPreferencesOnboardingScreenState();
 }
+
 class _QuizPreferencesOnboardingScreenState
     extends ConsumerState<QuizPreferencesOnboardingScreen> {
   bool _loading = false;
@@ -27,11 +29,19 @@ class _QuizPreferencesOnboardingScreenState
     'input',
     'fill_blank'
   ];
+
+  final Map<String, String> challengeTypeLabels = {
+    'quiz': 'Multiple Choice (MCQ)',
+    'code': 'Code Challenges',
+    'input': 'Input Questions',
+    'fill_blank': 'Fill in the Blank'
+  };
   @override
   void initState() {
     super.initState();
     _loadPreferences();
   }
+
   Future<void> _loadPreferences() async {
     try {
       final prefs = await ref.read(userPreferencesProvider.future);
@@ -55,6 +65,7 @@ class _QuizPreferencesOnboardingScreenState
       }
     }
   }
+
   Future<void> _savePreferences() async {
     final user = ref.read(userProvider).value;
     if (user == null) return;
@@ -83,6 +94,7 @@ class _QuizPreferencesOnboardingScreenState
       }
     }
   }
+
   @override
   Widget build(BuildContext context) {
     if (_prefsLoading) {
@@ -148,7 +160,7 @@ class _QuizPreferencesOnboardingScreenState
               children: challengeTypeOptions.map((type) {
                 final selected = _allowedChallengeTypes.contains(type);
                 return FilterChip(
-                  label: Text(type),
+                  label: Text(challengeTypeLabels[type] ?? type),
                   selected: selected,
                   onSelected: (val) {
                     setState(() {
