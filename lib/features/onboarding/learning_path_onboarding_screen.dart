@@ -72,8 +72,10 @@ class LearningPathOnboardingScreen extends ConsumerWidget {
                               };
                               await SupabaseService.client
                                   .from('users')
-                                  .update({'onboarding_complete': true}).eq(
-                                      'id', user['id']);
+                                  .update({
+                                    'onboarding_complete': true,
+                                    'streak_goal': 7
+                                  }).eq('id', user['id']);
                               if (context.mounted) {
                                 Navigator.of(context).pop(true);
                               }
@@ -129,8 +131,10 @@ class LearningPathOnboardingScreen extends ConsumerWidget {
                           };
                           await SupabaseService.client
                               .from('users')
-                              .update({'onboarding_complete': true}).eq(
-                                  'id', user['id']);
+                              .update({
+                                'onboarding_complete': true,
+                                'streak_goal': 7
+                              }).eq('id', user['id']);
                           if (context.mounted) {
                             Navigator.of(context).pop(true);
                           }
@@ -148,8 +152,10 @@ class LearningPathOnboardingScreen extends ConsumerWidget {
                       }
                     } else {
                       ref.read(userPathProvider.notifier).state = null;
-                      await SupabaseService.client.from('users').update(
-                          {'onboarding_complete': true}).eq('id', user['id']);
+                      await SupabaseService.client.from('users').update({
+                        'onboarding_complete': true,
+                        'streak_goal': 7
+                      }).eq('id', user['id']);
                       if (context.mounted) {
                         Navigator.of(context).pop(false);
                       }
@@ -174,8 +180,10 @@ class LearningPathOnboardingScreen extends ConsumerWidget {
                 if (user == null) return;
                 try {
                   ref.read(userPathProvider.notifier).state = null;
-                  await SupabaseService.client.from('users').update(
-                      {'onboarding_complete': true}).eq('id', user['id']);
+                  await SupabaseService.client.from('users').update({
+                    'onboarding_complete': true,
+                    'streak_goal': 7
+                  }).eq('id', user['id']);
                   if (context.mounted) {
                     Navigator.of(context).pop(false);
                   }

@@ -27,7 +27,7 @@ Future<void> syncOnboardingStatusFromBackend(WidgetRef ref) async {
       ref.read(onboardingCompleteProvider.notifier).state = onboardingComplete;
     }
   } catch (e) {
-    print('Error syncing onboarding status: $e');
+    debugPrint('[OnboardingGate] Error syncing onboarding status: $e');
   }
 }
 
@@ -69,7 +69,8 @@ class _OnboardingGateState extends ConsumerState<OnboardingGate> {
             onboardingComplete;
       }
       final bool shouldShowOnboarding =
-          (!onboardingComplete || streakGoal == null);
+          (!onboardingComplete && streakGoal == null);
+      debugPrint('[OnboardingGate] shouldShowOnboarding=$shouldShowOnboarding');
       if (shouldShowOnboarding && mounted) {
         await showDialog(
           context: context,
@@ -109,6 +110,7 @@ class _OnboardingGateState extends ConsumerState<OnboardingGate> {
                   ),
                 );
                 if (!mounted) return;
+                await syncOnboardingStatusFromBackend(ref);
                 final bool? pathSelected = await showDialog<bool?>(
                   context: context,
                   barrierDismissible: false,
@@ -129,7 +131,7 @@ class _OnboardingGateState extends ConsumerState<OnboardingGate> {
         );
       }
     } catch (e) {
-      debugPrint('Error checking onboarding status: $e');
+      debugPrint('[OnboardingGate] Error checking onboarding status: $e');
     } finally {
       if (mounted) {
         setState(() {
