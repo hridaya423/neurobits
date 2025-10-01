@@ -4,7 +4,6 @@ import 'package:neurobits/core/providers.dart';
 import 'package:neurobits/services/user_analytics_service.dart';
 import 'package:go_router/go_router.dart';
 import '../../services/supabase.dart';
-import '../../services/groq_service.dart';
 import '../onboarding/learning_path_onboarding_screen.dart';
 import 'learning_path_banner.dart';
 import 'path_topic_progress_bar.dart';
