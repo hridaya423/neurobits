@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:neurobits/core/go_router_refresh_stream.dart';
-import 'package:neurobits/core/providers.dart';
 import 'package:neurobits/features/auth/login_screen.dart';
 import 'package:neurobits/features/auth/signup_screen.dart';
 import 'package:neurobits/features/challenges/screens/quiz_screen.dart';
@@ -16,19 +15,15 @@ import 'package:neurobits/features/onboarding/onboarding_gate.dart';
 import 'dart:convert';
 
 final routerProvider = Provider<GoRouter>((ref) {
-  final authState = ref.watch(userProvider);
   return GoRouter(
     debugLogDiagnostics: true,
     initialLocation: '/landing',
     refreshListenable:
         GoRouterRefreshStream(SupabaseService.client.auth.onAuthStateChange),
     redirect: (context, state) {
-      if (!authState.hasValue) {
-        return null;
-      }
-      final isLoggedIn = authState.valueOrNull != null;
       final isAuthRoute = state.matchedLocation.startsWith('/auth');
       final isLandingRoute = state.matchedLocation == '/landing';
+      final isLoggedIn = SupabaseService.client.auth.currentUser != null;
       final isDashboard = state.matchedLocation == '/';
       if (!isLoggedIn && !isAuthRoute && !isLandingRoute) {
         return '/landing';
@@ -81,7 +76,7 @@ final routerProvider = Provider<GoRouter>((ref) {
               }
               if (questions.isEmpty) {
                 debugPrint(
-                    "Warning: /_loaded route reached but questions are empty or invalid.");
+                    "Warning: /_loaded route reached but queSstions are empty or invalid.");
               }
               return CustomTransitionPage(
                 child: challenge is Map<String, dynamic>

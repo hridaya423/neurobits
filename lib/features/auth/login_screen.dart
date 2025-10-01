@@ -32,13 +32,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _login() async {
+    if (_isLoading) return;
+
     if (!_formKey.currentState!.validate()) return;
+
     setState(() => _isLoading = true);
+
     try {
       await SupabaseService.signIn(
         _emailController.text.trim(),
         _passwordController.text.trim(),
       );
+
       if (mounted) {
         context.go('/');
       }
@@ -76,10 +81,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         padding: const EdgeInsets.all(20),
         child: Form(
           key: _formKey,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(height: MediaQuery.of(context).size.height * 0.1),
               const Text(
                 'Welcome Back!',
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
@@ -94,7 +101,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   border: OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.emailAddress,
-                validator: (v) => v!.contains('@') ? null : 'Invalid email',
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Email is required';
+                  }
+                  if (!RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$').hasMatch(value)) {
+                    return 'Please enter a valid email address';
+                  }
+                  return null;
+                },
                 textInputAction: TextInputAction.next,
               ),
               const SizedBox(height: 16),
@@ -106,7 +121,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   border: OutlineInputBorder(),
                 ),
                 obscureText: true,
-                validator: (v) => v!.length >= 4 ? null : 'Min 4 characters',
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Password is required';
+                  }
+                  if (value.length < 6) {
+                    return 'Password must be at least 6 characters';
+                  }
+                  return null;
+                },
                 textInputAction: TextInputAction.done,
                 onFieldSubmitted: (_) => _login(),
               ),
@@ -130,6 +153,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 child: const Text('New user? Create account'),
               ),
             ],
+            ),
           ),
         ),
       ),

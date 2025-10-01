@@ -5,6 +5,7 @@ import 'package:neurobits/services/supabase.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'learning_path_onboarding_screen.dart';
 import 'quiz_preferences_onboarding_screen.dart';
+import 'personalization_onboarding_screen.dart';
 
 final streakGoalProvider = StateProvider<int?>((ref) => null);
 final onboardingCompleteProvider = StateProvider<bool>((ref) => false);
@@ -43,7 +44,9 @@ class _OnboardingGateState extends ConsumerState<OnboardingGate> {
   @override
   void initState() {
     super.initState();
-    _checkOnboardingStatus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkOnboardingStatus();
+    });
   }
 
   Future<void> _checkOnboardingStatus() async {
@@ -101,6 +104,19 @@ class _OnboardingGateState extends ConsumerState<OnboardingGate> {
                   MaterialPageRoute(
                     fullscreenDialog: true,
                     builder: (_) => QuizPreferencesOnboardingScreen(
+                      onComplete: () {
+                        if (Navigator.of(context).canPop()) {
+                          Navigator.of(context).pop();
+                        }
+                      },
+                    ),
+                  ),
+                );
+                if (!mounted) return;
+                await Navigator.of(context).push(
+                  MaterialPageRoute(
+                    fullscreenDialog: true,
+                    builder: (_) => PersonalizationOnboardingScreen(
                       onComplete: () {
                         if (Navigator.of(context).canPop()) {
                           Navigator.of(context).pop();

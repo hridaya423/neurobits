@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:neurobits/core/widgets/latex_text.dart';
+import 'package:neurobits/core/widgets/math_input_field.dart';
+
 class BrainChallenge extends StatefulWidget {
   final String question;
   final String solution;
@@ -12,6 +15,7 @@ class BrainChallenge extends StatefulWidget {
   @override
   State<BrainChallenge> createState() => _BrainChallengeState();
 }
+
 class _BrainChallengeState extends State<BrainChallenge> {
   final _controller = TextEditingController();
   @override
@@ -19,22 +23,57 @@ class _BrainChallengeState extends State<BrainChallenge> {
     _controller.dispose();
     super.dispose();
   }
-  late final _questionWidget = Text(
+
+  late final _questionWidget = LaTeXText(
     widget.question,
     style: Theme.of(context).textTheme.titleLarge,
     key: const ValueKey('question'),
   );
-  late final _textField = TextField(
-    controller: _controller,
-    keyboardType: TextInputType.number,
-    decoration: const InputDecoration(
-      border: OutlineInputBorder(),
-      hintText: 'Enter your answer...',
-    ),
-  );
+  Widget _buildInputField() {
+    if (_isMathQuestion()) {
+      return MathInputField(
+        controller: _controller,
+        hintText: 'Enter your mathematical answer...',
+        onSubmitted: _submitAnswer,
+      );
+    }
+    return TextField(
+      controller: _controller,
+      keyboardType: TextInputType.number,
+      decoration: const InputDecoration(
+        border: OutlineInputBorder(),
+        hintText: 'Enter your answer...',
+      ),
+    );
+  }
+
   void _submitAnswer() {
     widget.onSubmitted(_controller.text.trim());
   }
+
+  bool _isMathQuestion() {
+    final question = widget.question.toLowerCase();
+    final solution = widget.solution.toLowerCase();
+
+    if (widget.question.contains(r'\(') ||
+        widget.question.contains(r'\[') ||
+        widget.question.contains(r'$$') ||
+        widget.solution.contains(r'\(') ||
+        widget.solution.contains(r'\[')) {
+      return true;
+    }
+
+    final mathSymbols = ['+', '-', '×', '÷', '=', '^', '√', 'π', '∑', '∫'];
+    for (final symbol in mathSymbols) {
+      if (widget.question.contains(symbol) ||
+          widget.solution.contains(symbol)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -43,7 +82,7 @@ class _BrainChallengeState extends State<BrainChallenge> {
         children: [
           _questionWidget,
           const SizedBox(height: 20),
-          _textField,
+          _buildInputField(),
           const SizedBox(height: 20),
           ElevatedButton(
             onPressed: _submitAnswer,

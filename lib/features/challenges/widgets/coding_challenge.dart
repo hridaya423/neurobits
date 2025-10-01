@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:neurobits/core/widgets/latex_text.dart';
+
 class CodingChallenge extends StatefulWidget {
   final String question;
   final String solution;
@@ -14,6 +16,7 @@ class CodingChallenge extends StatefulWidget {
   @override
   State<CodingChallenge> createState() => _CodingChallengeState();
 }
+
 class _CodingChallengeState extends State<CodingChallenge> {
   late final TextEditingController _controller;
   @override
@@ -21,18 +24,21 @@ class _CodingChallengeState extends State<CodingChallenge> {
     super.initState();
     _controller = TextEditingController(text: widget.starterCode ?? '');
   }
+
   @override
   void dispose() {
     _controller.dispose();
     super.dispose();
   }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Column(
         children: [
-          Text(widget.question, style: Theme.of(context).textTheme.titleLarge),
+          LaTeXText(widget.question,
+              style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 20),
           TextField(
             controller: _controller,

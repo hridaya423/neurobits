@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:neurobits/core/widgets/latex_text.dart';
+
 class FillInBlankChallenge extends StatefulWidget {
   final String question;
   final String answer;
@@ -12,6 +14,7 @@ class FillInBlankChallenge extends StatefulWidget {
   @override
   State<FillInBlankChallenge> createState() => _FillInBlankChallengeState();
 }
+
 class _FillInBlankChallengeState extends State<FillInBlankChallenge> {
   final _controller = TextEditingController();
   bool _submitted = false;
@@ -25,11 +28,13 @@ class _FillInBlankChallengeState extends State<FillInBlankChallenge> {
     });
     widget.onSubmitted(userInput);
   }
+
   @override
   void dispose() {
     _controller.dispose();
     super.dispose();
   }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -37,7 +42,7 @@ class _FillInBlankChallengeState extends State<FillInBlankChallenge> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(
+          LaTeXText(
             widget.question,
             style: Theme.of(context).textTheme.titleLarge,
           ),

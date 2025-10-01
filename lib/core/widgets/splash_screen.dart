@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
-import 'package:neurobits/services/groq_service.dart';
 import 'package:neurobits/services/supabase.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -27,7 +26,6 @@ class _SplashScreenState extends State<SplashScreen>
       final stopwatch = Stopwatch()..start();
       try {
         await Future.wait(<Future<void>>[
-          GroqService.init(),
           _prefetchUserData(context),
         ]).timeout(const Duration(seconds: 5), onTimeout: () => <void>[]);
       } catch (_) {}
@@ -114,7 +112,7 @@ class _SplashScreenState extends State<SplashScreen>
                       color: Theme.of(context)
                           .colorScheme
                           .primary
-                          .withOpacity(0.2),
+                          .withValues(alpha: 0.2),
                       blurRadius: 24,
                       spreadRadius: 2,
                     ),

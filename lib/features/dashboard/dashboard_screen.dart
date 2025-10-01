@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:neurobits/core/providers.dart' hide userPathChallengesProvider;
+import 'package:neurobits/core/providers.dart';
+import 'package:neurobits/services/user_analytics_service.dart';
 import 'package:go_router/go_router.dart';
 import '../../services/supabase.dart';
 import '../../services/groq_service.dart';
@@ -8,6 +9,7 @@ import '../onboarding/learning_path_onboarding_screen.dart';
 import 'learning_path_banner.dart';
 import 'path_topic_progress_bar.dart';
 import 'learning_path_challenge_card.dart';
+import 'personalized_topic_card.dart';
 import 'completed_paths_screen.dart';
 import '../../core/learning_path_providers.dart';
 import '../learning_path/learning_path_roadmap_screen.dart';
@@ -22,12 +24,16 @@ class DashboardScreen extends ConsumerStatefulWidget {
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   late final TextEditingController _topicController;
   bool _isRefreshing = false;
-  bool _isGeneratingQuiz = false;
+  final bool _isGeneratingQuiz = false;
   @override
   void initState() {
     super.initState();
     _topicController = TextEditingController();
     _topicController.addListener(_onTopicChanged);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      initializeUserPathProvider(ref);
+    });
   }
 
   @override
@@ -125,6 +131,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final userAsync = ref.watch(userProvider.select((value) => value));
     final userStatsAsync = ref.watch(userStatsProvider);
     final trendingTopicsAsync = ref.watch(trendingTopicsProvider);
+    final personalizedRecommendationsAsync =
+        ref.watch(personalizedRecommendationsProvider);
     return Scaffold(
       appBar: AppBar(
         title: const Text('Neurobits'),
@@ -144,8 +152,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         ],
       ),
       body: userAsync.when(
-        data: (user) => _buildContent(
-            context, ref, user, userStatsAsync, trendingTopicsAsync),
+        data: (user) => _buildContent(context, ref, user, userStatsAsync,
+            trendingTopicsAsync, personalizedRecommendationsAsync),
         loading: () => const _DashboardSkeleton(),
         error: (_, __) => const Center(child: Text('Error loading user')),
       ),
@@ -157,7 +165,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       WidgetRef ref,
       Map<String, dynamic>? user,
       AsyncValue<Map<String, dynamic>> userStatsAsync,
-      AsyncValue<List<Map<String, dynamic>>> trendingTopicsAsync) {
+      AsyncValue<List<Map<String, dynamic>>> trendingTopicsAsync,
+      AsyncValue<List<PersonalizedRecommendation>>
+          personalizedRecommendationsAsync) {
     if (user == null) return const SizedBox.shrink();
     final userPath = ref.watch(userPathProvider);
     final challenges = ref.watch(challengesProvider);
@@ -411,74 +421,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    trendingTopicsAsync.when(
-                      data: (topics) => Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Trending Topics:',
-                              style: Theme.of(context).textTheme.titleSmall),
-                          const SizedBox(height: 8),
-                          if (topics.isNotEmpty)
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: topics.take(5).map((topicMap) {
-                                final topic =
-                                    topicMap['topic']?.toString() ?? '';
-                                return ActionChip(
-                                  label: Text(topic),
-                                  onPressed: () {
-                                    _topicController.text = topic;
-                                  },
-                                );
-                              }).toList(),
-                            )
-                          else
-                            Text('No trending topics yet.',
-                                style: Theme.of(context).textTheme.bodySmall),
-                          const SizedBox(height: 12),
-                          if (topics.isNotEmpty)
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton.icon(
-                                icon: const Icon(Icons.shuffle),
-                                label: const Text('Random Topic'),
-                                onPressed: () {
-                                  final random = (topics.toList()..shuffle())
-                                          .first['topic'] ??
-                                      '';
-                                  if (random.isNotEmpty) {
-                                    context.push('/topic/$random');
-                                  }
-                                },
-                              ),
-                            ),
-                        ],
-                      ),
-                      loading: () => _Shimmer(
-                        child: SizedBox(
-                          height: 40,
-                          child: ListView.separated(
-                            scrollDirection: Axis.horizontal,
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            itemCount: 5,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(width: 8),
-                            itemBuilder: (_, __) => Container(
-                              width: 80,
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade300,
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      error: (err, stackTrace) => Text(
-                          'Failed to load trending topics',
-                          style: TextStyle(color: Colors.red)),
-                    ),
-                    const SizedBox(height: 16),
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
@@ -532,374 +474,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Trending Challenges',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                ],
-              ),
-            ),
-            SizedBox(
-              height: 180,
-              child: trendingChallenges.when(
-                data: (challenges) {
-                  final filteredChallenges = userPath != null &&
-                          userPath['user_path_id'] != null &&
-                          currentIndex < pathChallenges.length
-                      ? _filterChallengesByTopic(challenges,
-                          pathChallenges[currentIndex]['topic'] ?? '')
-                      : challenges;
-                  return filteredChallenges.isEmpty
-                      ? const Center(
-                          child: Text(
-                              'No trending challenges available for this topic. Complete some challenges to see trending content!'))
-                      : ListView.builder(
-                          scrollDirection: Axis.horizontal,
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          itemCount: filteredChallenges.length,
-                          itemBuilder: (context, index) => Card(
-                            margin: const EdgeInsets.only(right: 16, bottom: 8),
-                            elevation: 2,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(12),
-                              onTap: () {
-                                final challengeData = filteredChallenges[index];
-                                final challengeId = challengeData['id'];
-                                final questions = challengeData['questions'];
-                                if (challengeId != null) {
-                                  if (questions is List &&
-                                      questions.isNotEmpty) {
-                                    context.push(
-                                      '/challenge/${challengeId.toString()}_loaded',
-                                      extra: challengeData,
-                                    );
-                                  } else {
-                                    context.push(
-                                      '/challenge/${challengeId.toString()}',
-                                      extra: challengeData,
-                                    );
-                                  }
-                                } else {
-                                  debugPrint(
-                                      "Could not determine ID for trending challenge.");
-                                }
-                              },
-                              child: Container(
-                                width: 250,
-                                padding: const EdgeInsets.all(16),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            filteredChallenges[index]['title'],
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .titleMedium
-                                                ?.copyWith(
-                                                  fontWeight: FontWeight.bold,
-                                                ),
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 8, vertical: 4),
-                                          decoration: BoxDecoration(
-                                            color: _getDifficultyColor(
-                                                filteredChallenges[index]
-                                                    ['difficulty']),
-                                            borderRadius:
-                                                BorderRadius.circular(12),
-                                          ),
-                                          child: Text(
-                                            '${filteredChallenges[index]['difficulty']} ★',
-                                            style: const TextStyle(
-                                                color: Colors.white),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      filteredChallenges[index]['question'] ??
-                                          'Test your brain with this challenge!',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodyMedium,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    const Spacer(),
-                                    Row(
-                                      children: [
-                                        Icon(
-                                          _getChallengeTypeIcon(
-                                              filteredChallenges[index]
-                                                  ['type']),
-                                          size: 16,
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .primary,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          _getChallengeTypeText(
-                                              filteredChallenges[index]
-                                                  ['type']),
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodySmall,
-                                        ),
-                                        const Spacer(),
-                                        const Icon(Icons.timer, size: 16),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          '${filteredChallenges[index]['estimated_time_seconds'] ?? 30}s',
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodySmall,
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              child: personalizedRecommendationsAsync.when(
+                data: (recommendations) {
+                  if (recommendations.isEmpty) {
+                    return _buildFallbackTopics(context, trendingTopicsAsync);
+                  }
+                  return _buildPersonalizedRecommendations(
+                      context, recommendations);
                 },
-                loading: () => _Shimmer(
-                  child: SizedBox(
-                    height: 180,
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: 3,
-                      itemBuilder: (_, __) => Container(
-                        width: 250,
-                        margin: const EdgeInsets.only(right: 16, bottom: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade300,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                error: (error, stackTrace) => Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error_outline,
-                          color: Colors.red, size: 48),
-                      const SizedBox(height: 16),
-                      Text('Error loading trending challenges: $error',
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodyMedium),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Most Solved Challenges',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                ],
-              ),
-            ),
-            SizedBox(
-              height: 180,
-              child: mostSolvedChallenges.when(
-                data: (challenges) {
-                  final filteredChallenges = userPath != null &&
-                          userPath['user_path_id'] != null &&
-                          currentIndex < pathChallenges.length
-                      ? _filterChallengesByTopic(challenges,
-                          pathChallenges[currentIndex]['topic'] ?? '')
-                      : challenges;
-                  return filteredChallenges.isEmpty
-                      ? const Center(
-                          child: Text(
-                              'No popular challenges for this topic yet. Start solving challenges to see what\'s popular!'))
-                      : ListView.builder(
-                          scrollDirection: Axis.horizontal,
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          itemCount: filteredChallenges.length,
-                          itemBuilder: (context, index) => Card(
-                            margin: const EdgeInsets.only(right: 16, bottom: 8),
-                            elevation: 2,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(12),
-                              onTap: () {
-                                final challengeData = filteredChallenges[index];
-                                final challengeId = challengeData['id'];
-                                final questions = challengeData['questions'];
-                                if (challengeId != null) {
-                                  if (questions is List &&
-                                      questions.isNotEmpty) {
-                                    context.push(
-                                      '/challenge/${challengeId.toString()}_loaded',
-                                      extra: challengeData,
-                                    );
-                                  } else {
-                                    context.push(
-                                      '/challenge/${challengeId.toString()}',
-                                      extra: challengeData,
-                                    );
-                                  }
-                                } else {
-                                  debugPrint(
-                                      "Could not determine ID for most solved challenge.");
-                                }
-                              },
-                              child: Container(
-                                width: 250,
-                                padding: const EdgeInsets.all(16),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            filteredChallenges[index]['title'],
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .titleMedium
-                                                ?.copyWith(
-                                                  fontWeight: FontWeight.bold,
-                                                ),
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 8, vertical: 4),
-                                          decoration: BoxDecoration(
-                                            color: _getDifficultyColor(
-                                                filteredChallenges[index]
-                                                    ['difficulty']),
-                                            borderRadius:
-                                                BorderRadius.circular(12),
-                                          ),
-                                          child: Text(
-                                            '${filteredChallenges[index]['difficulty']} ★',
-                                            style: const TextStyle(
-                                                color: Colors.white),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Row(
-                                      children: [
-                                        const Icon(Icons.people,
-                                            size: 16, color: Colors.white),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          '${filteredChallenges[index]['solve_count'] ?? 0}',
-                                          style: const TextStyle(
-                                              color: Colors.white),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      filteredChallenges[index]['question'] ??
-                                          'Test your brain with this challenge!',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodyMedium,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    const Spacer(),
-                                    Row(
-                                      children: [
-                                        Icon(
-                                          _getChallengeTypeIcon(
-                                              filteredChallenges[index]
-                                                  ['type']),
-                                          size: 16,
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .primary,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          _getChallengeTypeText(
-                                              filteredChallenges[index]
-                                                  ['type']),
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodySmall,
-                                        ),
-                                        const Spacer(),
-                                        const Icon(Icons.timer, size: 16),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          '${filteredChallenges[index]['estimated_time_seconds'] ?? 30}s',
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodySmall,
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
-                },
-                loading: () => _Shimmer(
-                  child: SizedBox(
-                    height: 180,
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: 3,
-                      itemBuilder: (_, __) => Container(
-                        width: 250,
-                        margin: const EdgeInsets.only(right: 16, bottom: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade300,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                error: (error, stackTrace) => Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error_outline,
-                          color: Colors.red, size: 48),
-                      const SizedBox(height: 16),
-                      Text('Error loading popular challenges: $error',
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodyMedium),
-                    ],
-                  ),
-                ),
+                loading: () => _buildRecommendationsSkeleton(),
+                error: (_, __) =>
+                    _buildFallbackTopics(context, trendingTopicsAsync),
               ),
             ),
           ],
@@ -944,185 +530,274 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       case 'code':
         return 'Coding Challenge';
       default:
-        return 'Brain Challenge';
+        return 'Challenge';
+    }
+  }
+
+  Widget _buildPersonalizedRecommendations(
+      BuildContext context, List<PersonalizedRecommendation> recommendations) {
+    final mightLove = recommendations
+        .where((r) => r.category == 'might_love')
+        .take(6)
+        .toList();
+    final touchAgain = recommendations
+        .where((r) => r.category == 'touch_again')
+        .take(6)
+        .toList();
+
+    final otherRecommendations = recommendations
+        .where((r) => r.category != 'might_love' && r.category != 'touch_again')
+        .take(6)
+        .toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (mightLove.isNotEmpty || otherRecommendations.isNotEmpty) ...[
+          Row(
+            children: [
+              Icon(Icons.favorite_rounded,
+                  size: 20, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(width: 8),
+              Text(
+                'We think you might love these...',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 200,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              itemCount: mightLove.isNotEmpty
+                  ? mightLove.length
+                  : otherRecommendations.length,
+              itemBuilder: (context, index) {
+                final list =
+                    mightLove.isNotEmpty ? mightLove : otherRecommendations;
+                return PersonalizedTopicCard(
+                  recommendation: list[index],
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 32),
+        ],
+        if (touchAgain.isNotEmpty) ...[
+          Row(
+            children: [
+              Icon(Icons.refresh_rounded,
+                  size: 20, color: Theme.of(context).colorScheme.secondary),
+              const SizedBox(width: 8),
+              Text(
+                'Want to touch on these topics again?',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 200,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              itemCount: touchAgain.length,
+              itemBuilder: (context, index) {
+                return PersonalizedTopicCard(
+                  recommendation: touchAgain[index],
+                );
+              },
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildFallbackTopics(BuildContext context,
+      AsyncValue<List<Map<String, dynamic>>> trendingTopicsAsync) {
+    return trendingTopicsAsync.when(
+      data: (topics) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Popular Topics',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  )),
+          const SizedBox(height: 16),
+          if (topics.isNotEmpty)
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: topics.take(5).map((topicMap) {
+                final topic = topicMap['topic']?.toString() ?? '';
+                return ActionChip(
+                  label: Text(topic),
+                  onPressed: () {
+                    _topicController.text = topic;
+                  },
+                );
+              }).toList(),
+            )
+          else
+            Text('No topics available yet.',
+                style: Theme.of(context).textTheme.bodySmall),
+        ],
+      ),
+      loading: () => _buildRecommendationsSkeleton(),
+      error: (_, __) => const SizedBox.shrink(),
+    );
+  }
+
+  Widget _buildRecommendationsSkeleton() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 200,
+          height: 24,
+          decoration: BoxDecoration(
+            color: Colors.grey.shade300,
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          height: 200,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: 3,
+            itemBuilder: (_, __) => Container(
+              width: 280,
+              margin: const EdgeInsets.only(right: 16),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  IconData _getCategoryIcon(String category) {
+    switch (category) {
+      case 'might_love':
+        return Icons.favorite_rounded;
+      case 'touch_again':
+        return Icons.refresh_rounded;
+      default:
+        return Icons.star_rounded;
     }
   }
 
   Widget _buildActionButton(BuildContext context, WidgetRef ref) {
-    final topic = mounted ? _topicController.text.trim() : "";
-    final buttonHeight = 52.0;
-    return SizedBox(
-      height: buttonHeight,
-      child: ElevatedButton.icon(
-        onPressed: (topic.isEmpty || _isGeneratingQuiz)
-            ? null
-            : () async {
-                setState(() => _isGeneratingQuiz = true);
-                try {
-                  final prefsAsync = ref.read(userPreferencesProvider.future);
-                  final prefsData = await prefsAsync;
-                  const defaultNumQuestions = 5;
-                  const defaultTimePerQuestion = 60;
-                  const defaultDifficulty = 'Medium';
-                  const defaultTimedMode = false;
-                  const defaultAllowedTypes = ['quiz'];
-                  final quizData = await GroqService.prepareQuizData(
-                    topic: topic,
-                    questionCount:
-                        prefsData?['default_num_questions'] as int? ??
-                            defaultNumQuestions,
-                    timePerQuestion:
-                        prefsData?['default_time_per_question_sec'] as int? ??
-                            defaultTimePerQuestion,
-                    difficulty: prefsData?['default_difficulty'] as String? ??
-                        defaultDifficulty,
-                    timedMode: prefsData?['timed_mode_enabled'] as bool? ??
-                        defaultTimedMode,
-                    includeMcqs: (List<String>.from(
-                            prefsData?['allowed_challenge_types']
-                                    as List<dynamic>? ??
-                                defaultAllowedTypes))
-                        .contains('quiz'),
-                    includeCodeChallenges: (List<String>.from(
-                            prefsData?['allowed_challenge_types']
-                                    as List<dynamic>? ??
-                                defaultAllowedTypes))
-                        .contains('code'),
-                    includeInput: (List<String>.from(
-                            prefsData?['allowed_challenge_types']
-                                    as List<dynamic>? ??
-                                defaultAllowedTypes))
-                        .contains('input'),
-                    includeFillBlank: (List<String>.from(
-                            prefsData?['allowed_challenge_types']
-                                    as List<dynamic>? ??
-                                defaultAllowedTypes))
-                        .contains('fill_blank'),
-                    ref: ref,
-                    totalTimeLimit: null,
-                  );
-                  final String routeKey = quizData['routeKey'];
-                  final Map<String, dynamic> extraData = quizData['extraData'];
-                  if (mounted) {
-                    setState(() => _isGeneratingQuiz = false);
-                    context.pushReplacement(
-                      '/challenge/$routeKey/_loaded',
-                      extra: extraData,
-                    );
-                  }
-                } catch (e, stackTrace) {
-                  debugPrint(
-                      "[DashboardScreen] Error generating quiz: $e\n$stackTrace");
-                  if (mounted) {
-                    setState(() => _isGeneratingQuiz = false);
-
-                    if (e is GroqApiError) {
-                      e.showNotification(context);
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                            content: Text('Failed to start challenge: $e')),
-                      );
-                    }
-                  }
-                }
-              },
-        icon: _isGeneratingQuiz
-            ? Container(
-                width: 20,
-                height: 20,
-                padding: const EdgeInsets.all(2.0),
-                child: const CircularProgressIndicator(
-                    strokeWidth: 2, color: Colors.white),
-              )
-            : const Icon(Icons.play_arrow),
-        label: const Text('Start'),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Theme.of(context).colorScheme.primary,
-          foregroundColor: Theme.of(context).colorScheme.onPrimary,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        ),
+    return ElevatedButton(
+      onPressed: _topicController.text.isEmpty
+          ? null
+          : () {
+              final topic = _topicController.text.trim();
+              if (topic.isNotEmpty) {
+                context.push('/topic/$topic');
+              }
+            },
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Theme.of(context).colorScheme.primary,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       ),
+      child: const Icon(Icons.arrow_forward),
     );
   }
 }
 
 class _DashboardSkeleton extends StatelessWidget {
   const _DashboardSkeleton();
+
   @override
   Widget build(BuildContext context) {
-    return _Shimmer(
+    return Shimmer.fromColors(
+      baseColor: Colors.grey.shade300,
+      highlightColor: Colors.grey.shade100,
       child: SingleChildScrollView(
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              margin: const EdgeInsets.all(16),
-              height: 100,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(12),
+            const SizedBox(height: 16),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Container(
+                    width: 60,
+                    height: 60,
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: double.infinity,
+                          height: 20,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          width: 100,
+                          height: 16,
+                          color: Colors.white,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              height: 48,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(8),
+            const SizedBox(height: 24),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Container(
+                width: double.infinity,
+                height: 56,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Container(
+                width: 200,
+                height: 24,
+                color: Colors.white,
               ),
             ),
             const SizedBox(height: 16),
             SizedBox(
-              height: 40,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: 5,
-                separatorBuilder: (_, __) => const SizedBox(width: 8),
-                itemBuilder: (_, __) => Container(
-                  width: 80,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              height: 180,
+              height: 200,
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 itemCount: 3,
                 itemBuilder: (_, __) => Container(
-                  width: 250,
-                  margin: const EdgeInsets.only(right: 16, bottom: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+                  width: 280,
+                  height: 200,
+                  margin: const EdgeInsets.only(right: 16),
+                  color: Colors.white,
                 ),
               ),
             ),
-            const SizedBox(height: 24),
-            SizedBox(
-              height: 180,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: 3,
-                itemBuilder: (_, __) => Container(
-                  width: 250,
-                  margin: const EdgeInsets.only(right: 16, bottom: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 32),
           ],
         ),
       ),
@@ -1133,6 +808,7 @@ class _DashboardSkeleton extends StatelessWidget {
 class _Shimmer extends StatelessWidget {
   final Widget child;
   const _Shimmer({required this.child});
+
   @override
   Widget build(BuildContext context) {
     return Shimmer.fromColors(

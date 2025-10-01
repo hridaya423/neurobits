@@ -7,18 +7,24 @@ final userPathProvider = StateProvider<Map<String, dynamic>?>((ref) {
   return null;
 });
 final userPathDataProvider = FutureProvider<Map<String, dynamic>?>((ref) async {
-  final user = ref.watch(userProvider).value;
-  if (user == null) return null;
-  try {
-    final path = await ref.watch(activeLearningPathProvider(user['id']).future);
-    if (path != null) {
-      ref.read(userPathProvider.notifier).state = path;
-    }
-    return path;
-  } catch (e) {
-    debugPrint('Error in userPathDataProvider: $e');
-    return null;
-  }
+  final userAsync = ref.watch(userProvider);
+  return await userAsync.when(
+    data: (user) async {
+      if (user == null) return null;
+      try {
+        final path = await ref.watch(activeLearningPathProvider(user['id']).future);
+        if (path != null) {
+          ref.read(userPathProvider.notifier).state = path;
+        }
+        return path;
+      } catch (e) {
+        debugPrint('Error in userPathDataProvider: $e');
+        return null;
+      }
+    },
+    loading: () => null,
+    error: (_, __) => null,
+  );
 });
 final currentChallengeProvider =
     FutureProvider<Map<String, dynamic>?>((ref) async {
@@ -41,21 +47,26 @@ final roadmapProvider = FutureProvider<List<Map<String, dynamic>>>((ref) async {
   return List<Map<String, dynamic>>.from(topics);
 });
 void initializeUserPathProvider(WidgetRef ref) {
-  final user = ref.watch(userProvider).value;
-  if (user == null) return;
-  ref.read(userPathDataProvider.future).then((path) {
-    if (path != null) {
-      ref.read(userPathProvider.notifier).state = path;
-    }
-  });
-  ref.listen(activeLearningPathProvider(user['id']), (previous, next) {
-    next.whenData((path) {
+  final userAsync = ref.watch(userProvider);
+
+  userAsync.whenData((user) {
+    if (user == null) return;
+
+    ref.read(userPathDataProvider.future).then((path) {
       if (path != null) {
-        final currentPath = ref.read(userPathProvider);
-        if (currentPath == null || currentPath['id'] != path['id']) {
-          ref.read(userPathProvider.notifier).state = path;
-        }
+        ref.read(userPathProvider.notifier).state = path;
       }
+    });
+
+    ref.listen(activeLearningPathProvider(user['id']), (previous, next) {
+      next.whenData((path) {
+        if (path != null) {
+          final currentPath = ref.read(userPathProvider);
+          if (currentPath == null || currentPath['id'] != path['id']) {
+            ref.read(userPathProvider.notifier).state = path;
+          }
+        }
+      });
     });
   });
 }
@@ -63,15 +74,21 @@ void initializeUserPathProvider(WidgetRef ref) {
 final isPathLoadingProvider = StateProvider<bool>((ref) => false);
 final initializePathProvider =
     FutureProvider<Map<String, dynamic>?>((ref) async {
-  final user = ref.watch(userProvider).value;
-  if (user == null) return null;
-  try {
-    final path = await ref.read(activeLearningPathProvider(user['id']).future);
-    return path;
-  } catch (e) {
-    debugPrint('Error initializing path: $e');
-    return null;
-  }
+  final userAsync = ref.watch(userProvider);
+  return await userAsync.when(
+    data: (user) async {
+      if (user == null) return null;
+      try {
+        final path = await ref.read(activeLearningPathProvider(user['id']).future);
+        return path;
+      } catch (e) {
+        debugPrint('Error initializing path: $e');
+        return null;
+      }
+    },
+    loading: () => null,
+    error: (_, __) => null,
+  );
 });
 final completedPathsProvider =
     FutureProvider.family<List<Map<String, dynamic>>, String>(
@@ -89,8 +106,7 @@ final completedPathsProvider =
             id,
             name,
             description,
-            is_active,
-            metadata
+            is_active
           )
         ''')
         .eq('user_id', userId)

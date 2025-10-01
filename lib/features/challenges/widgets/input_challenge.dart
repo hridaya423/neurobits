@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:neurobits/core/widgets/latex_text.dart';
+import 'package:neurobits/core/widgets/math_input_field.dart';
 
 class InputChallenge extends StatefulWidget {
   final String question;
@@ -41,6 +43,41 @@ class _InputChallengeState extends State<InputChallenge> {
     widget.onSubmitted(answer);
   }
 
+  bool _isMathQuestion() {
+    final question = widget.question.toLowerCase();
+    final solution = widget.solution.toLowerCase();
+    
+    if (widget.question.contains(r'\(') || 
+        widget.question.contains(r'\[') ||
+        widget.question.contains(r'$$') ||
+        widget.solution.contains(r'\(') ||
+        widget.solution.contains(r'\[')) {
+      return true;
+    }
+    
+    final mathKeywords = [
+      'solve', 'calculate', 'find', 'equation', 'formula', 'derivative', 'integral',
+      'limit', 'sum', 'product', 'fraction', 'square root', 'power', 'exponent',
+      'algebra', 'calculus', 'geometry', 'trigonometry', 'logarithm', 'sine',
+      'cosine', 'tangent', 'matrix', 'vector', 'polynomial', 'factor'
+    ];
+    
+    for (final keyword in mathKeywords) {
+      if (question.contains(keyword) || solution.contains(keyword)) {
+        return true;
+      }
+    }
+    
+    final mathSymbols = ['+', '-', '×', '÷', '=', '^', '√', 'π', 'θ', 'α', 'β', '∑', '∫'];
+    for (final symbol in mathSymbols) {
+      if (widget.question.contains(symbol) || widget.solution.contains(symbol)) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -51,23 +88,31 @@ class _InputChallengeState extends State<InputChallenge> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (widget.title != null && widget.title!.isNotEmpty)
-              Text(widget.title!,
+              LaTeXText(widget.title!,
                   style: Theme.of(context)
                       .textTheme
                       .titleMedium
                       ?.copyWith(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            Text(widget.question, style: Theme.of(context).textTheme.bodyLarge),
+            LaTeXText(widget.question, style: Theme.of(context).textTheme.bodyLarge),
             const SizedBox(height: 16),
-            TextField(
-              controller: _controller,
-              enabled: !_submitted,
-              decoration: InputDecoration(
-                labelText: 'Your Answer',
-                border: const OutlineInputBorder(),
-              ),
-              onSubmitted: (_) => _submit(),
-            ),
+            _isMathQuestion() 
+              ? MathInputField(
+                  controller: _controller,
+                  labelText: 'Your Answer',
+                  hintText: 'Enter your mathematical answer...',
+                  enabled: !_submitted,
+                  onSubmitted: _submit,
+                )
+              : TextField(
+                  controller: _controller,
+                  enabled: !_submitted,
+                  decoration: const InputDecoration(
+                    labelText: 'Your Answer',
+                    border: OutlineInputBorder(),
+                  ),
+                  onSubmitted: (_) => _submit(),
+                ),
             const SizedBox(height: 16),
             if (!_submitted)
               ElevatedButton(

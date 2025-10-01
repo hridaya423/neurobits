@@ -31,16 +31,23 @@ class _TweakLearningPathScreenState
       _level = userPath['level'] as String? ?? 'Intermediate';
       final Map<String, dynamic>? thresholdMeta =
           userPath['metadata'] as Map<String, dynamic>?;
-      _threshold = thresholdMeta != null && thresholdMeta['threshold'] != null
-          ? (thresholdMeta['threshold'] as num).toDouble()
-          : 0.75;
+      _threshold = 0.75;
+      if (thresholdMeta != null && thresholdMeta['threshold'] != null) {
+        final threshold = thresholdMeta['threshold'];
+        if (threshold is num) {
+          _threshold = threshold.toDouble();
+        }
+      }
       final metadata = thresholdMeta;
       if (metadata != null && metadata.containsKey('emphasis')) {
         final Map<String, dynamic>? emphasis =
             metadata['emphasis'] as Map<String, dynamic>?;
         if (emphasis != null && emphasis.isNotEmpty) {
           _emphasisTopic = emphasis.keys.first;
-          _emphasisWeight = (emphasis[_emphasisTopic] as num).toDouble();
+          final weight = emphasis[_emphasisTopic];
+          if (weight is num) {
+            _emphasisWeight = weight.toDouble();
+          }
         }
       }
     } else {

@@ -160,8 +160,11 @@ class SupabaseService {
       int accuracyCount = 0;
       for (var progress in progressData) {
         if (progress['completed'] == true && progress['accuracy'] != null) {
-          totalAccuracy += (progress['accuracy'] as num).toDouble();
-          accuracyCount++;
+          final accuracy = progress['accuracy'];
+          if (accuracy is num) {
+            totalAccuracy += accuracy.toDouble();
+            accuracyCount++;
+          }
         }
       }
       final averageAccuracy =
@@ -681,7 +684,10 @@ class SupabaseService {
       final Map<String, dynamic>? meta =
           (userPathRes['ai_path_json'] as Map<String, dynamic>?);
       if (meta != null && meta['threshold'] != null) {
-        passThreshold = (meta['threshold'] as num).toDouble();
+        final threshold = meta['threshold'];
+        if (threshold is num) {
+          passThreshold = threshold.toDouble();
+        }
       }
       if (passThreshold < 0.5) passThreshold = 0.5;
       final pathId = userPathRes['path_id'];

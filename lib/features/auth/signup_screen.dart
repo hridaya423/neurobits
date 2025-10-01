@@ -30,6 +30,9 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
         context.go('/');
       }
     } catch (e) {
+      debugPrint('❌ Signup failed: $e');
+      debugPrint('Error type: ${e.runtimeType}');
+      
       if (mounted) {
         String errorMessage = 'Signup failed';
         if (e is AuthException) {
@@ -38,7 +41,11 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
           errorMessage = 'Signup failed: ${e.toString()}';
         }
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(errorMessage)),
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
         );
       }
     }
@@ -57,10 +64,12 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
         padding: const EdgeInsets.all(20),
         child: Form(
           key: _formKey,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(height: MediaQuery.of(context).size.height * 0.05),
               const Text(
                 'Join Neurobits',
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
@@ -112,6 +121,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                 child: const Text('Already have an account? Login'),
               ),
             ],
+            ),
           ),
         ),
       ),

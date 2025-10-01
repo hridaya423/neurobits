@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:neurobits/services/supabase.dart';
 import 'package:neurobits/services/groq_service.dart';
+import 'package:neurobits/services/user_analytics_service.dart';
 import 'package:neurobits/core/learning_path_providers.dart';
 
 final challengeFilterDifficultyProvider = StateProvider<String?>((ref) => null);
@@ -60,6 +61,19 @@ final aiQuestionsProvider =
 final trendingTopicsProvider =
     FutureProvider<List<Map<String, dynamic>>>((ref) async {
   return await SupabaseService.getTrendingTopics(limit: 5);
+});
+
+final personalizedRecommendationsProvider =
+    FutureProvider<List<PersonalizedRecommendation>>((ref) async {
+  final user = SupabaseService.client.auth.currentUser;
+  if (user == null) {
+    return [];
+  }
+
+  return await UserAnalyticsService.getPersonalizedRecommendations(
+    userId: user.id,
+    limit: 12,
+  );
 });
 final trendingChallengesProvider =
     FutureProvider<List<Map<String, dynamic>>>((ref) async {
@@ -176,12 +190,14 @@ final userProvider = StreamProvider<Map<String, dynamic>?>((ref) async* {
   }
 
   final initialUser = SupabaseService.client.auth.currentUser;
+
+  yield null;
+
   if (initialUser != null) {
     final userData = await fetchUserData(initialUser.id);
     yield userData;
-  } else {
-    yield null;
   }
+
   await for (final event in SupabaseService.client.auth.onAuthStateChange) {
     final user = event.session?.user;
     if (user != null) {

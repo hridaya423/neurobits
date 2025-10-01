@@ -1,0 +1,10 @@
+.dither-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  pointer-events: all !important;
+}
+
+.dither-container canvas {
+  pointer-events: all !important;
+}

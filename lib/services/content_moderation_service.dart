@@ -103,7 +103,7 @@ class ContentModerationService {
       final response = await http.post(
         Uri.parse('https://api.groq.com/openai/v1/chat/completions'),
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json; charset=utf-8',
           'Authorization': 'Bearer $_groqApiKey',
         },
         body: jsonEncode({
@@ -118,7 +118,7 @@ class ContentModerationService {
       );
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
         final result = data['choices'][0]['message']['content'] as String;
         final isSafe = result.toLowerCase().trim().startsWith('safe');
 
@@ -166,6 +166,10 @@ class ContentModerationService {
   static bool _checkRateLimit(String userId) {
     final now = DateTime.now();
 
+    if (_userRateLimits.length % 100 == 0) {
+      _cleanupOldRateLimits(now);
+    }
+
     if (!_userRateLimits.containsKey(userId)) {
       _userRateLimits[userId] = _RateLimit(
         requestCount: 0,
@@ -186,6 +190,13 @@ class ContentModerationService {
 
     userLimit.requestCount++;
     return true;
+  }
+
+  static void _cleanupOldRateLimits(DateTime now) {
+    const maxAge = Duration(hours: 24);
+    _userRateLimits.removeWhere((userId, rateLimit) {
+      return now.difference(rateLimit.windowStart) > maxAge;
+    });
   }
 
   static Future<Map<String, dynamic>?> moderateUserProfileData(

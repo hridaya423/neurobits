@@ -5,21 +5,35 @@ import 'package:neurobits/core/app_router.dart';
 import 'package:neurobits/services/supabase.dart';
 import 'package:neurobits/services/groq_service.dart';
 import 'package:neurobits/core/widgets/splash_screen.dart';
-import 'package:neurobits/features/onboarding/onboarding_gate.dart';
-import 'package:neurobits/core/learning_path_providers.dart';
 import 'package:neurobits/services/content_moderation_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
   try {
     await dotenv.load(fileName: ".env");
-    debugPrint("Loaded .env file successfully");
   } catch (e) {
     debugPrint("Error loading .env file: $e");
   }
-  await ContentModerationService.init();
-  await GroqService.init();
-  await SupabaseService.init();
+
+  try {
+    await ContentModerationService.init();
+  } catch (e) {
+    debugPrint("Error initializing ContentModerationService: $e");
+  }
+
+  try {
+    await GroqService.init();
+  } catch (e) {
+    debugPrint("Error initializing GroqService: $e");
+  }
+
+  try {
+    await SupabaseService.init();
+  } catch (e) {
+    debugPrint("Error initializing SupabaseService: $e");
+  }
+
   runApp(const ProviderScope(child: MyApp()));
 }
 
@@ -27,7 +41,6 @@ class MyApp extends ConsumerWidget {
   const MyApp({super.key});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    initializeUserPathProvider(ref);
     final router = ref.watch(routerProvider);
 
     return MaterialApp.router(
@@ -38,7 +51,7 @@ class MyApp extends ConsumerWidget {
       routerConfig: router,
       debugShowCheckedModeBanner: false,
       builder: (context, child) {
-        return _SplashWrapper(child: OnboardingGate(child: child!));
+        return _SplashWrapper(child: child!);
       },
     );
   }
@@ -53,29 +66,41 @@ class _SplashWrapper extends StatefulWidget {
 
 class _SplashWrapperState extends State<_SplashWrapper> {
   bool _showSplash = true;
-  final bool _statsLoaded = false;
-  DateTime? _splashStart;
+  static bool _hasShownSplash = false;
 
   @override
   void initState() {
     super.initState();
-    _splashStart = DateTime.now();
-    _preloadUserStats();
+
+    if (_hasShownSplash) {
+      _showSplash = false;
+    } else {
+      _hasShownSplash = true;
+      _startSplashTimer();
+    }
   }
 
-  Future<void> _preloadUserStats() async {
-    final minSplash = Duration(seconds: 2);
-    final splashStart = DateTime.now();
-    Future statsFuture = (() async {
+  void _startSplashTimer() async {
+    await Future.delayed(const Duration(milliseconds: 1500));
+
+    if (mounted) {
+      setState(() => _showSplash = false);
+    }
+
+    _preloadDataInBackground();
+  }
+
+  void _preloadDataInBackground() {
+    Future.microtask(() async {
       try {
         final user = SupabaseService.client.auth.currentUser;
         if (user != null) {
-          await SupabaseService.getUserStats(user.id);
+          SupabaseService.getUserStats(user.id);
         }
-      } catch (_) {}
-    })();
-    await Future.wait([Future.delayed(minSplash), statsFuture]);
-    if (mounted) setState(() => _showSplash = false);
+      } catch (e) {
+        debugPrint('Background data preload error: $e');
+      }
+    });
   }
 
   @override
