@@ -32,7 +32,6 @@ const RollingGallery: React.FC<RollingGalleryProps> = ({ autoplay = false, pause
 
   const rotation = useMotionValue(0);
   const controls = useAnimation();
-  const autoplayRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const handleDrag = (_: MouseEvent | TouchEvent | PointerEvent, info: PanInfo): void => {
     controls.stop();
