@@ -91,17 +91,17 @@ export default function Home() {
       />
 
       <div className="content-wrapper" style={{ pointerEvents: 'none' }}>
-        <section className="min-h-screen flex items-center justify-center px-6">
-          <div style={{ pointerEvents: 'auto' }} className="max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-            <div className="text-left">
-              <h1 className={`${tinos.className} text-6xl sm:text-7xl md:text-8xl lg:text-9xl font-bold mb-8 text-white leading-none tracking-tight`}>
+        <section className="min-h-screen flex items-center justify-center px-6 py-24">
+          <div style={{ pointerEvents: 'auto' }} className="max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-center">
+            <div className="text-center lg:text-left order-2 lg:order-1">
+              <h1 className={`${tinos.className} text-5xl sm:text-6xl md:text-7xl lg:text-9xl font-bold mb-6 lg:mb-8 text-white leading-none tracking-tight`}>
                 Neurobits
               </h1>
-              <p className={`${montserrat.className} text-xl sm:text-2xl md:text-3xl text-white/60 font-light tracking-wide`}>
+              <p className={`${montserrat.className} text-lg sm:text-xl md:text-2xl lg:text-3xl text-white/60 font-light tracking-wide`}>
                 Train your brain
               </p>
             </div>
-            <div className="hidden lg:block">
+            <div className="order-1 lg:order-2 scale-75 lg:scale-100">
               <RollingGallery
                 images={showcaseImages}
                 autoplay={true}
