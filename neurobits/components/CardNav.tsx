@@ -189,9 +189,9 @@ const CardNav: React.FC<CardNavProps> = ({
               </svg>
             </a>
             <a
-              href="#"
+              href="https://github.com/hridaya423/neurobits/releases/tag/v1.0.0"
               className="store-icon-button"
-              aria-label="Get it on Google Play"
+              aria-label="Download Android APK"
               style={{ color: buttonTextColor }}
             >
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">

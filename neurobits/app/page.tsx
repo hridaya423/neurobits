@@ -82,8 +82,8 @@ export default function Home() {
             bgColor: '#6D28D9',
             textColor: '#FFFFFF',
             links: [
-              { label: 'Download on Android', href: '#play-store', ariaLabel: 'Download on Play Store' },
-              { label: 'View Screenshots', href: '#android-screenshots', ariaLabel: 'View Android screenshots' }
+              { label: 'Download APK', href: 'https://github.com/hridaya423/neurobits/releases/tag/v1.0.0', ariaLabel: 'Download Android APK' },
+              { label: 'View All Releases', href: 'https://github.com/hridaya423/neurobits/releases', ariaLabel: 'View all releases' }
             ]
           }
         ]}
