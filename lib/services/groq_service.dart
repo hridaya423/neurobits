@@ -64,9 +64,11 @@ class GroqService {
       RegExp(r'^[a-zA-Z0-9\s\-_.,!?()' '"]+\$');
   GroqService._();
   static Future<void> init() async {
-    _apiKey = dotenv.env['GROQ_API_KEY'];
-    if (_apiKey == null) {
-      debugPrint('Warning: GROQ_API_KEY not found in .env file');
+    const groqKey = String.fromEnvironment('GROQ_API_KEY', defaultValue: '');
+    _apiKey = groqKey.isNotEmpty ? groqKey : dotenv.env['GROQ_API_KEY'];
+
+    if (_apiKey == null || _apiKey!.isEmpty) {
+      debugPrint('Warning: GROQ_API_KEY not found');
     }
     _validInput = _apiKey?.isNotEmpty ?? false;
   }

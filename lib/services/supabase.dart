@@ -39,10 +39,19 @@ class SupabaseService {
   }
 
   static Future<void> init() async {
-    await dotenv.load(fileName: '.env');
+    const supabaseUrl = String.fromEnvironment('SUPABASE_URL', defaultValue: '');
+    const supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: '');
+
+    String url = supabaseUrl.isNotEmpty ? supabaseUrl : (dotenv.env['SUPABASE_URL'] ?? '');
+    String anonKey = supabaseAnonKey.isNotEmpty ? supabaseAnonKey : (dotenv.env['SUPABASE_ANON_KEY'] ?? '');
+
+    if (url.isEmpty || anonKey.isEmpty) {
+      throw Exception('SUPABASE_URL and SUPABASE_ANON_KEY must be configured');
+    }
+
     await Supabase.initialize(
-      url: dotenv.env['SUPABASE_URL']!,
-      anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
+      url: url,
+      anonKey: anonKey,
       authFlowType: AuthFlowType.pkce,
     );
     client = Supabase.instance.client;

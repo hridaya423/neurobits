@@ -30,25 +30,22 @@ jobs:
           flutter-version: '3.27.1'
           channel: 'stable'
 
-      - name: Create .env file
-        run: |
-          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" > .env
-          echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" >> .env
-          echo "GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}" >> .env
-
-      - name: Verify .env file
-        run: |
-          echo "Contents of .env file (secrets masked):"
-          cat .env | sed 's/=.*/=***/'
-
       - name: Get dependencies
         run: flutter pub get
 
       - name: Build APK
-        run: flutter build apk --release
+        run: >
+          flutter build apk --release
+          --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          --dart-define=GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}
 
       - name: Build App Bundle
-        run: flutter build appbundle --release
+        run: >
+          flutter build appbundle --release
+          --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          --dart-define=GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}
 
       - name: Get version from tag
         id: get_version
@@ -78,7 +75,6 @@ jobs:
             1. Download the APK file
             2. Enable "Install from Unknown Sources" on your Android device
             3. Open the APK file to install
-
           draft: false
           prerelease: false
 

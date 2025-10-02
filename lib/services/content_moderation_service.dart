@@ -28,11 +28,12 @@ class ContentModerationService {
   static const Duration _notificationThrottle = Duration(minutes: 5);
 
   static Future<void> init() async {
-    _groqApiKey = dotenv.env['GROQ_API_KEY'];
+    const groqKey = String.fromEnvironment('GROQ_API_KEY', defaultValue: '');
+    _groqApiKey = groqKey.isNotEmpty ? groqKey : dotenv.env['GROQ_API_KEY'];
     _groqApiAvailable = _groqApiKey != null && _groqApiKey!.isNotEmpty;
     if (!_groqApiAvailable) {
       debugPrint(
-          'Warning: GROQ_API_KEY not found in .env file. Content moderation will be limited.');
+          'Warning: GROQ_API_KEY not found. Content moderation will be limited.');
     }
   }
 

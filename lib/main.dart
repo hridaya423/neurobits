@@ -13,7 +13,7 @@ void main() async {
   try {
     await dotenv.load(fileName: ".env");
   } catch (e) {
-    debugPrint("Error loading .env file: $e");
+    debugPrint("Note: .env file not found, using dart-define values if available: $e");
   }
 
   try {
