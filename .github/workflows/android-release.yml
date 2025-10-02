@@ -32,10 +32,14 @@ jobs:
 
       - name: Create .env file
         run: |
-          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
+          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" > .env
           echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" >> .env
           echo "GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}" >> .env
-          echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> .env
+
+      - name: Verify .env file
+        run: |
+          echo "Contents of .env file (secrets masked):"
+          cat .env | sed 's/=.*/=***/'
 
       - name: Get dependencies
         run: flutter pub get
