@@ -4,6 +4,7 @@ import { Tinos, Montserrat } from 'next/font/google';
 import Dither from '../components/Dither';
 import CardNav from '../components/CardNav';
 import RollingGallery from '../components/RollingGallery';
+import Banner from '../components/Banner';
 
 const tinos = Tinos({
   subsets: ['latin'],
@@ -30,6 +31,7 @@ export default function Home() {
 
   return (
     <div className="relative min-h-screen">
+      <Banner message="Yer a wizard, the magic update is now live! Go try it!" storageKey="magic-update-banner" />
       <div style={{
         width: '100%',
         height: '100vh',

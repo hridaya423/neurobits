@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import './Dither.css';
 
 const waveVertexShader = `
-precision highp float;
+precision mediump float;
 varying vec2 vUv;
 void main() {
   vUv = uv;
@@ -19,7 +19,7 @@ void main() {
 `;
 
 const waveFragmentShader = `
-precision highp float;
+precision mediump float;
 uniform vec2 resolution;
 uniform float time;
 uniform float waveSpeed;
@@ -63,7 +63,7 @@ float cnoise(vec2 P) {
   return 2.3 * mix(n_x.x, n_x.y, fade_xy.y);
 }
 
-const int OCTAVES = 4;
+const int OCTAVES = 3;
 float fbm(vec2 p) {
   float value = 0.0;
   float amp = 1.0;
@@ -78,7 +78,10 @@ float fbm(vec2 p) {
 
 float pattern(vec2 p) {
   vec2 p2 = p - time * waveSpeed;
-  return fbm(p + fbm(p2)); 
+  vec2 p3 = p + time * waveSpeed * 0.5;
+  float layer1 = fbm(p + fbm(p2));
+  float layer2 = fbm(p3) * 0.5;
+  return layer1 + layer2;
 }
 
 void main() {
@@ -99,7 +102,7 @@ void main() {
 `;
 
 const ditherFragmentShader = `
-precision highp float;
+precision mediump float;
 uniform float colorNum;
 uniform float pixelSize;
 const float bayerMatrix8x8[64] = float[64](
@@ -204,6 +207,7 @@ function DitheredWaves({
 }: DitheredWavesProps) {
   const mesh = useRef<THREE.Mesh>(null);
   const mouseRef = useRef(new THREE.Vector2());
+  const rafIdRef = useRef<number | null>(null);
   const { viewport, size, gl } = useThree();
 
   const waveUniformsRef = useRef<WaveUniforms>({
@@ -255,10 +259,26 @@ function DitheredWaves({
 
   const handlePointerMove = (e: ThreeEvent<PointerEvent>) => {
     if (!enableMouseInteraction) return;
-    const rect = gl.domElement.getBoundingClientRect();
-    const dpr = gl.getPixelRatio();
-    mouseRef.current.set((e.clientX - rect.left) * dpr, (e.clientY - rect.top) * dpr);
+
+    // Throttle mouse updates using requestAnimationFrame
+    if (rafIdRef.current !== null) return;
+
+    rafIdRef.current = requestAnimationFrame(() => {
+      const rect = gl.domElement.getBoundingClientRect();
+      const dpr = gl.getPixelRatio();
+      mouseRef.current.set((e.clientX - rect.left) * dpr, (e.clientY - rect.top) * dpr);
+      rafIdRef.current = null;
+    });
   };
+
+  // Cleanup animation frame on unmount
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+    };
+  }, []);
 
   return (
     <>
@@ -316,7 +336,7 @@ export default function Dither({
       className="dither-container"
       camera={{ position: [0, 0, 6] }}
       dpr={1}
-      gl={{ antialias: true, preserveDrawingBuffer: true }}
+      gl={{ antialias: false, preserveDrawingBuffer: true, powerPreference: 'high-performance' }}
     >
       <DitheredWaves
         waveSpeed={waveSpeed}
