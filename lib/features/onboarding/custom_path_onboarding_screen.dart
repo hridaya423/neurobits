@@ -5,6 +5,7 @@ import '../../core/providers.dart';
 import '../../services/supabase.dart';
 import '../../services/groq_service.dart';
 import '../../core/learning_path_providers.dart';
+import '../../utils/text_utils.dart';
 
 class CustomPathOnboardingScreen extends ConsumerStatefulWidget {
   const CustomPathOnboardingScreen({super.key});
@@ -79,16 +80,38 @@ class _CustomPathOnboardingScreenState
         throw Exception('AI did not return a valid learning path.');
       }
 
-      final pathRes = await SupabaseService.client
-          .from('learning_paths')
-          .insert({
-            'name': '$topic ($level)',
-            'description': 'Custom AI-generated path for $topic ($level)',
-            'is_active': true,
-          })
-          .select()
-          .maybeSingle();
+      final capitalizedTopic = TextUtils.capitalizeTitle(topic);
 
+      final aiDescription = aiResponse['path_description'] as String? ??
+          'Customized $level learning path for $capitalizedTopic';
+
+      final existingActivePaths = await SupabaseService.client
+          .from('user_learning_paths')
+          .select('id')
+          .eq('user_id', user['id'])
+          .is_('completed_at', null);
+
+      if (existingActivePaths.isNotEmpty) {
+        final pathIdsToComplete =
+            existingActivePaths.map((p) => p['id']).toList();
+        await SupabaseService.client.from('user_learning_paths').update({
+          'completed_at': DateTime.now().toIso8601String(),
+          'is_complete': true,
+        }).in_('id', pathIdsToComplete);
+      }
+
+      final pathResults =
+          await SupabaseService.client.from('learning_paths').insert({
+        'name': '$capitalizedTopic ($level)',
+        'description': aiDescription,
+        'is_active': true,
+      }).select();
+
+      if (pathResults.isEmpty) {
+        throw Exception('Failed to create learning path');
+      }
+
+      final pathRes = pathResults.first;
       final pathId = pathRes['id'];
 
       final topicNames =
@@ -99,21 +122,24 @@ class _CustomPathOnboardingScreenState
         if (name.trim().isEmpty) continue;
 
         try {
-          final existingTopic = await SupabaseService.client
+          final existingTopicResults = await SupabaseService.client
               .from('topics')
               .select('id')
-              .ilike('name', name.trim())
-              .maybeSingle();
+              .ilike('name', name.trim());
 
-          if (existingTopic != null) {
-            topicIds[name] = existingTopic['id'];
+          if (existingTopicResults.isNotEmpty) {
+            topicIds[name] = existingTopicResults.first['id'];
           } else {
             debugPrint("Topic '$name' not found, inserting into topics table.");
-            final newTopic = await SupabaseService.client
+            final newTopicResults = await SupabaseService.client
                 .from('topics')
-                .insert({'name': name.trim()})
-                .select('id')
-                .single();
+                .insert({'name': name.trim()}).select('id');
+
+            if (newTopicResults.isEmpty) {
+              throw Exception('Failed to create topic: $name');
+            }
+
+            final newTopic = newTopicResults.first;
             topicIds[name] = newTopic['id'];
           }
         } catch (e, s) {
@@ -139,39 +165,72 @@ class _CustomPathOnboardingScreenState
         });
       }
 
-      final userPathRes = await SupabaseService.client
-          .from('user_learning_paths')
-          .insert({
-            'user_id': user['id'],
-            'path_id': pathId,
-            'current_step': 1,
-            'started_at': DateTime.now().toIso8601String(),
-            'duration_days': durationDays,
-            'daily_minutes': dailyMinutes,
-            'level': level,
-            'is_custom': true,
-            'ai_path_json': aiResponse,
-          })
-          .select()
-          .maybeSingle();
+      final userPathResults =
+          await SupabaseService.client.from('user_learning_paths').insert({
+        'user_id': user['id'],
+        'path_id': pathId,
+        'current_step': 1,
+        'started_at': DateTime.now().toIso8601String(),
+        'duration_days': durationDays,
+        'daily_minutes': dailyMinutes,
+        'level': level,
+        'is_custom': true,
+        'ai_path_json': aiResponse,
+      }).select();
 
-      final userPathId = userPathRes['id'];
-
-      for (final step in path) {
-        await SupabaseService.client.from('user_path_challenges').insert({
-          'user_path_id': userPathId,
-          'day': step['day'],
-          'topic': step['topic'],
-          'challenge_type': step['challenge_type'],
-          'title': step['title'],
-          'description': step['description'],
-          'completed': false,
-        });
+      if (userPathResults.isEmpty) {
+        throw Exception('Failed to create user learning path');
       }
 
-      ref.read(userPathProvider.notifier).state = pathRes;
+      final userPathRes = userPathResults.first;
+      final userPathId = userPathRes['id'];
+
+      final challenges = <Map<String, dynamic>>[];
+      for (final step in path) {
+        final topic = step['topic']?.toString().trim() ?? 'Unknown Topic';
+        final description = step['description']?.toString().trim();
+        final title = step['title']?.toString().trim() ?? topic;
+        final challengeType =
+            step['challenge_type']?.toString().toLowerCase() ?? 'quiz';
+
+        final finalDescription = (description == null || description.isEmpty)
+            ? 'Learn about $topic - Day ${step['day']}'
+            : description;
+
+        final challengeData = {
+          'user_path_id': userPathId,
+          'day': step['day'],
+          'topic': topic,
+          'challenge_type': challengeType,
+          'title': title,
+          'description': finalDescription,
+          'completed': false,
+        };
+
+        await SupabaseService.client
+            .from('user_path_challenges')
+            .insert(challengeData);
+
+        challenges.add(challengeData);
+      }
+
+      ref.read(userPathProvider.notifier).state = {
+        ...pathRes,
+        'current_step': 1,
+        'user_path_id': userPathId,
+        'challenges': challenges,
+        'total_steps': challenges.length,
+      };
+
+      await SupabaseService.client.from('users').update({
+        'onboarding_complete': true,
+        'streak_goal': 7,
+      }).eq('id', user['id']);
+
       ref.invalidate(userStatsProvider);
       ref.invalidate(userProvider);
+      ref.invalidate(activeLearningPathProvider); // ✅ Reload learning path data
+
       if (!mounted) return;
       context.go('/dashboard');
     } catch (e, s) {

@@ -39,6 +39,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/landing',
         pageBuilder: (context, state) => const CustomTransitionPage(
+          transitionDuration: Duration(milliseconds: 4000),
           child: NewLandingPage(),
           transitionsBuilder: _fadeTransition,
         ),
@@ -46,6 +47,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/',
         pageBuilder: (context, state) => const CustomTransitionPage(
+          transitionDuration: Duration(milliseconds: 4000),
           child: OnboardingGate(child: DashboardScreen()),
           transitionsBuilder: _fadeTransition,
         ),
@@ -79,6 +81,7 @@ final routerProvider = Provider<GoRouter>((ref) {
                     "Warning: /_loaded route reached but queSstions are empty or invalid.");
               }
               return CustomTransitionPage(
+                transitionDuration: const Duration(milliseconds: 4000),
                 child: challenge is Map<String, dynamic>
                     ? ChallengeScreen(
                         topic: challenge['topic']?.toString() ??
@@ -103,6 +106,7 @@ final routerProvider = Provider<GoRouter>((ref) {
               debugPrint(
                   "Navigating to challenge loader with extra: ${state.extra}");
               return CustomTransitionPage(
+                transitionDuration: const Duration(milliseconds: 4000),
                 child: ChallengeLoaderScreen(challengeData: state.extra),
                 transitionsBuilder: _slideTransition,
               );
@@ -111,6 +115,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: 'topic/:topic',
             pageBuilder: (context, state) => CustomTransitionPage(
+              transitionDuration: const Duration(milliseconds: 4000),
               child: TopicCustomizationScreen(
                 topic: state.pathParameters['topic'] ?? '',
               ),
@@ -122,6 +127,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             pageBuilder: (context, state) {
               final extra = state.extra as Map<String, dynamic>;
               return CustomTransitionPage(
+                transitionDuration: const Duration(milliseconds: 4000),
                 child: ChallengeScreen(
                   topic: extra['topic'] as String,
                   questions: extra['questions'] as List<Map<String, dynamic>>,
@@ -137,6 +143,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/dashboard',
         pageBuilder: (context, state) => const CustomTransitionPage(
+          transitionDuration: Duration(milliseconds: 4000),
           child: OnboardingGate(child: DashboardScreen()),
           transitionsBuilder: _fadeTransition,
         ),
@@ -144,6 +151,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/auth/login',
         pageBuilder: (context, state) => const CustomTransitionPage(
+          transitionDuration: Duration(milliseconds: 4000),
           child: LoginScreen(),
           transitionsBuilder: _fadeTransition,
         ),
@@ -151,6 +159,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/auth/signup',
         pageBuilder: (context, state) => const CustomTransitionPage(
+          transitionDuration: Duration(milliseconds: 4000),
           child: SignupScreen(),
           transitionsBuilder: _fadeTransition,
         ),
@@ -158,6 +167,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/profile',
         pageBuilder: (context, state) => const CustomTransitionPage(
+          transitionDuration: Duration(milliseconds: 4000),
           child: ProfileScreen(),
           transitionsBuilder: _fadeTransition,
         ),
@@ -167,9 +177,20 @@ final routerProvider = Provider<GoRouter>((ref) {
 });
 Widget _fadeTransition(BuildContext context, Animation<double> animation,
     Animation<double> secondaryAnimation, Widget child) {
-  return FadeTransition(
-    opacity: animation,
-    child: child,
+  return Stack(
+    children: [
+      FadeTransition(
+        opacity: animation,
+        child: child,
+      ),
+      Positioned.fill(
+        child: IgnorePointer(
+          child: CustomPaint(
+            painter: _SparklePainter(animation.value),
+          ),
+        ),
+      ),
+    ],
   );
 }
 
@@ -179,8 +200,82 @@ Widget _slideTransition(BuildContext context, Animation<double> animation,
   const end = Offset.zero;
   final tween = Tween(begin: begin, end: end)
       .chain(CurveTween(curve: Curves.easeOutCubic));
-  return SlideTransition(
-    position: animation.drive(tween),
-    child: child,
+  return Stack(
+    children: [
+      SlideTransition(
+        position: animation.drive(tween),
+        child: child,
+      ),
+      Positioned.fill(
+        child: IgnorePointer(
+          child: CustomPaint(
+            painter: _SparklePainter(animation.value),
+          ),
+        ),
+      ),
+    ],
   );
+}
+
+class _SparklePainter extends CustomPainter {
+  final double progress;
+
+  _SparklePainter(this.progress);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..style = PaintingStyle.fill;
+
+    final sparkleCount = 15;
+    for (int i = 0; i < sparkleCount; i++) {
+      final seed = i * 123.456;
+      final x = (seed % size.width);
+      final y = ((seed * 1.5) % size.height);
+
+      final sparkleProgress =
+          ((progress * 3) - (i / sparkleCount)).clamp(0.0, 1.0);
+      final opacity =
+          (sparkleProgress * (1 - sparkleProgress) * 4).clamp(0.0, 1.0);
+
+      if (opacity > 0) {
+        paint.color = Color.lerp(
+          const Color(0xFFFFD700),
+          const Color(0xFFFFFFFF),
+          i % 2 == 0 ? 0.3 : 0.7,
+        )!
+            .withOpacity(opacity);
+
+        final sparkleSize = 4.0 + (i % 3) * 2.0;
+        _drawStar(canvas, paint, Offset(x, y), sparkleSize);
+      }
+    }
+  }
+
+  void _drawStar(Canvas canvas, Paint paint, Offset center, double size) {
+    final path = Path();
+    for (int i = 0; i < 4; i++) {
+      final angle = (i * 90) * (3.14159 / 180);
+      final x = center.dx + size * (i % 2 == 0 ? 1 : 0.3) * (i < 2 ? 1 : -1);
+      final y = center.dy +
+          size * (i % 2 == 1 ? 1 : 0.3) * (i == 1 || i == 2 ? 1 : -1);
+
+      if (i == 0) {
+        path.moveTo(x, center.dy);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    path.close();
+    canvas.drawPath(path, paint);
+
+    canvas.drawCircle(
+      center,
+      size * 0.3,
+      paint..color = paint.color.withOpacity(paint.color.opacity * 0.5),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_SparklePainter oldDelegate) =>
+      progress != oldDelegate.progress;
 }

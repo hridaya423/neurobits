@@ -143,10 +143,25 @@ class _TopicCustomizationScreenState
         setState(() {
           _isLoading = false;
         });
+
+        String errorMessage =
+            'Unable to create quiz. Please try again with different settings.';
+        if (e.toString().contains('GROQ_API_KEY not configured')) {
+          errorMessage = 'API configuration error. Please contact support.';
+        } else if (e.toString().contains('Invalid question count')) {
+          errorMessage =
+              'Invalid number of questions. Please select between 3-50 questions.';
+        } else if (e.toString().contains('No valid JSON array found')) {
+          errorMessage = 'AI service returned invalid data. Please try again.';
+        } else if (e.toString().contains('couldn\'t create questions')) {
+          errorMessage = e.toString().replaceAll('Exception: ', '');
+        }
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(
-                  'Unable to create quiz. Please try again with different settings.')),
+            content: Text(errorMessage),
+            duration: const Duration(seconds: 4),
+          ),
         );
       }
     }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:neurobits/features/learning_path/tweak_learning_path_screen.dart';
+
 class LearningPathBanner extends StatelessWidget {
   final Map<String, dynamic>? path;
   final int currentStep;
@@ -12,6 +13,7 @@ class LearningPathBanner extends StatelessWidget {
     required this.totalSteps,
     required this.onChangePath,
   });
+
   String _capitalizeTopicName(String topic) {
     if (topic.isEmpty) return topic;
     final words = topic.split(' ');
@@ -20,6 +22,7 @@ class LearningPathBanner extends StatelessWidget {
       return word[0].toUpperCase() + word.substring(1).toLowerCase();
     }).join(' ');
   }
+
   @override
   Widget build(BuildContext context) {
     if (path == null) return const SizedBox.shrink();
@@ -47,24 +50,35 @@ class LearningPathBanner extends StatelessWidget {
     final topicsText = topicNames.isNotEmpty
         ? 'Topics: ${topicNames.join(", ")}'
         : 'No topics available';
+
+    final primary = Theme.of(context).colorScheme.primary;
+    final secondary = Theme.of(context).colorScheme.secondary;
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            Theme.of(context).colorScheme.primary,
-            Theme.of(context).colorScheme.primaryContainer,
+            primary,
+            Color.lerp(primary, secondary, 0.3)!,
+            Color.lerp(primary, secondary, 0.15)!,
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
+          stops: const [0.0, 0.5, 1.0],
         ),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
+            color: primary.withOpacity(0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+          BoxShadow(
             color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
         ],
       ),

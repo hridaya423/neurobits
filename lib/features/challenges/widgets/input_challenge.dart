@@ -46,35 +46,72 @@ class _InputChallengeState extends State<InputChallenge> {
   bool _isMathQuestion() {
     final question = widget.question.toLowerCase();
     final solution = widget.solution.toLowerCase();
-    
-    if (widget.question.contains(r'\(') || 
+
+    if (widget.question.contains(r'\(') ||
         widget.question.contains(r'\[') ||
         widget.question.contains(r'$$') ||
         widget.solution.contains(r'\(') ||
         widget.solution.contains(r'\[')) {
       return true;
     }
-    
+
     final mathKeywords = [
-      'solve', 'calculate', 'find', 'equation', 'formula', 'derivative', 'integral',
-      'limit', 'sum', 'product', 'fraction', 'square root', 'power', 'exponent',
-      'algebra', 'calculus', 'geometry', 'trigonometry', 'logarithm', 'sine',
-      'cosine', 'tangent', 'matrix', 'vector', 'polynomial', 'factor'
+      'solve',
+      'calculate',
+      'find',
+      'equation',
+      'formula',
+      'derivative',
+      'integral',
+      'limit',
+      'sum',
+      'product',
+      'fraction',
+      'square root',
+      'power',
+      'exponent',
+      'algebra',
+      'calculus',
+      'geometry',
+      'trigonometry',
+      'logarithm',
+      'sine',
+      'cosine',
+      'tangent',
+      'matrix',
+      'vector',
+      'polynomial',
+      'factor'
     ];
-    
+
     for (final keyword in mathKeywords) {
       if (question.contains(keyword) || solution.contains(keyword)) {
         return true;
       }
     }
-    
-    final mathSymbols = ['+', '-', '×', '÷', '=', '^', '√', 'π', 'θ', 'α', 'β', '∑', '∫'];
+
+    final mathSymbols = [
+      '+',
+      '-',
+      '×',
+      '÷',
+      '=',
+      '^',
+      '√',
+      'π',
+      'θ',
+      'α',
+      'β',
+      '∑',
+      '∫'
+    ];
     for (final symbol in mathSymbols) {
-      if (widget.question.contains(symbol) || widget.solution.contains(symbol)) {
+      if (widget.question.contains(symbol) ||
+          widget.solution.contains(symbol)) {
         return true;
       }
     }
-    
+
     return false;
   }
 
@@ -94,25 +131,26 @@ class _InputChallengeState extends State<InputChallenge> {
                       .titleMedium
                       ?.copyWith(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            LaTeXText(widget.question, style: Theme.of(context).textTheme.bodyLarge),
+            LaTeXText(widget.question,
+                style: Theme.of(context).textTheme.bodyLarge),
             const SizedBox(height: 16),
-            _isMathQuestion() 
-              ? MathInputField(
-                  controller: _controller,
-                  labelText: 'Your Answer',
-                  hintText: 'Enter your mathematical answer...',
-                  enabled: !_submitted,
-                  onSubmitted: _submit,
-                )
-              : TextField(
-                  controller: _controller,
-                  enabled: !_submitted,
-                  decoration: const InputDecoration(
+            _isMathQuestion()
+                ? MathInputField(
+                    controller: _controller,
                     labelText: 'Your Answer',
-                    border: OutlineInputBorder(),
+                    hintText: 'Enter your mathematical answer...',
+                    enabled: !_submitted,
+                    onSubmitted: _submit,
+                  )
+                : TextField(
+                    controller: _controller,
+                    enabled: !_submitted,
+                    decoration: const InputDecoration(
+                      labelText: 'Your Answer',
+                      border: OutlineInputBorder(),
+                    ),
+                    onSubmitted: (_) => _submit(),
                   ),
-                  onSubmitted: (_) => _submit(),
-                ),
             const SizedBox(height: 16),
             if (!_submitted)
               ElevatedButton(

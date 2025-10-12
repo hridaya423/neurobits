@@ -1,5 +1,6 @@
 import 'package:neurobits/services/supabase.dart';
 import 'package:neurobits/services/groq_service.dart';
+import 'package:neurobits/services/recommendation_cache_service.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'dart:math';
@@ -47,8 +48,18 @@ class UserAnalyticsService {
       getPersonalizedRecommendations({
     required String userId,
     int limit = 12,
+    bool forceRefresh = false,
   }) async {
     try {
+      if (!forceRefresh) {
+        final cached =
+            await RecommendationCacheService.getCachedRecommendations(userId);
+        if (cached != null && cached.isNotEmpty) {
+          debugPrint('✓ Using cached recommendations (${cached.length} items)');
+          return cached.take(limit).toList();
+        }
+      }
+
       final performanceData = await getUserPerformanceVector(userId);
       final userPreferences = await _getUserPreferences(userId);
       final allTopics = await _getAllAvailableTopics();
@@ -61,10 +72,16 @@ class UserAnalyticsService {
         limit: limit,
       );
 
+      await RecommendationCacheService.cacheRecommendations(
+          userId, aiRecommendations);
+      debugPrint('✓ Cached ${aiRecommendations.length} recommendations');
+
       return aiRecommendations;
     } catch (e) {
       debugPrint('Error getting personalized recommendations: $e');
-      return [];
+      final cached =
+          await RecommendationCacheService.getCachedRecommendations(userId);
+      return cached ?? [];
     }
   }
 
@@ -135,6 +152,12 @@ class UserAnalyticsService {
   }
 
   static Future<String> _getTopicDomain(String topicName) async {
+    final cached =
+        await RecommendationCacheService.getCachedTopicDomain(topicName);
+    if (cached != null) {
+      return cached;
+    }
+
     try {
       final prompt = '''
 Classify this learning topic into one of these broad domains. Return ONLY the domain name, nothing else.
@@ -164,11 +187,11 @@ Return only the domain name:''';
         'Data',
         'General'
       ];
-      if (validDomains.contains(domain)) {
-        return domain;
-      }
 
-      return 'General';
+      final validDomain = validDomains.contains(domain) ? domain : 'General';
+      await RecommendationCacheService.cacheTopicDomain(topicName, validDomain);
+
+      return validDomain;
     } catch (e) {
       debugPrint('Error classifying topic domain: $e');
       return 'General';
@@ -219,14 +242,19 @@ Return only the domain name:''';
           await _buildUserLearningProfile(performanceData, userPreferences);
 
       final aiPrompt = _buildRecommendationPrompt(userProfile, availableTopics);
-      final aiResponse = await GroqService.getAIResponse(aiPrompt);
+
+      final aiResponse =
+          await GroqService.getAIResponse(aiPrompt, maxTokens: 12000);
 
       final recommendations = await _parseAIRecommendations(
           aiResponse, availableTopics, performanceData, userPreferences);
 
+      debugPrint(
+          '[_generateAIRecommendations] Successfully parsed ${recommendations.length} recommendations');
       return recommendations.take(limit).toList();
-    } catch (e) {
+    } catch (e, stackTrace) {
       debugPrint('Error generating AI recommendations: $e');
+      debugPrint('Stack trace: $stackTrace');
       return _generateFallbackRecommendations(
           performanceData, availableTopics, userPreferences, limit);
     }
@@ -360,17 +388,22 @@ User Psychology Profile:
 - Curiosity Areas: ${userProfile['interested_topics']} (intrinsic motivation)
 - Preferences: ${userProfile['learning_style']}, ${userProfile['time_commitment']}min sessions
 
-**CRITICAL: Conservative Progression Rules**
-- NEW USERS (0-3 topics): VERY conservative jumps, stay close to basics
-- CAUTIOUS USERS (low boldness <40%): Gentle progressions, build confidence first
-- ADVENTUROUS USERS (high boldness >70%): Can handle bigger leaps and cross-domain jumps
-- HIGH SAFETY (>80%): Stick to proven domains, incremental steps
-- LOW SAFETY (<50%): More experimental, user shown they like exploring
+**CRITICAL: Balanced Progression Rules with Exploration**
+- NEW USERS (0-3 topics): Start conservative but include 1-2 exploratory picks
+- CAUTIOUS USERS (low boldness <40%): 70% related + 30% adjacent/exploratory
+- ADVENTUROUS USERS (high boldness >70%): 50% related + 50% cross-domain jumps
+- HIGH SAFETY (>80%): Focus on proven domains but suggest 1 "curiosity pick"
+- LOW SAFETY (<50%): More experimental, user enjoys exploring
 
-**Examples of Appropriate Progression:**
-- NEW: "Basic Math" → "Arithmetic Practice" (NOT "Advanced Calculus")
-- CAUTIOUS: "Python Basics" → "Python Lists" (NOT "Machine Learning")
-- ADVENTUROUS: "Python Expert" → "Java Fundamentals" → "Mobile Development"
+**Diversification Strategy:**
+- Include at LEAST 2 cross-domain recommendations (e.g., Math → Science, Code → Design)
+- Add 1 "wildcard" topic from a completely different field to spark curiosity
+- Balance depth (mastery within domain) with breadth (exploration across domains)
+
+**Examples of Good Diversity:**
+- NEW: "Addition" + "Subtraction" (related) + "Basic Patterns" (exploratory)
+- CAUTIOUS: "Python Lists" (related) + "Web Design Basics" (adjacent) + "Logic Puzzles" (exploratory)
+- ADVENTUROUS: "Python Expert" + "JavaScript Fundamentals" + "System Design" + "UI/UX Principles"
 
 Available Topics:
 ${jsonEncode(topicList)}
@@ -441,7 +474,7 @@ For each recommendation, provide ultra-detailed analysis:
 - composite_score: (0.1-1.0 weighted combination of all factors)
 - difficulty: Easy|Medium|Hard
 
-**CRITICAL: Use all 5 layers of analysis for each recommendation. Show your reasoning.**
+**CRITICAL: Use all 5 layers of analysis for each recommendation.**
 
 Response format (JSON array):
 [{
@@ -486,14 +519,26 @@ Response format (JSON array):
     Map<String, dynamic>? userPreferences,
   ) async {
     try {
-      final jsonStart = aiResponse.indexOf('[');
-      final jsonEnd = aiResponse.lastIndexOf(']') + 1;
+      String cleaned = aiResponse.replaceAll(RegExp(r'```json\s*'), '');
+      cleaned = cleaned.replaceAll(RegExp(r'```\s*'), '');
+
+      cleaned = cleaned.replaceAll(
+          RegExp(r'^.*?(Reasoning|Analysis|Here|Based on).*?(?=\[)',
+              caseSensitive: false, dotAll: true, multiLine: true),
+          '');
+
+      final jsonStart = cleaned.indexOf('[');
+      final jsonEnd = cleaned.lastIndexOf(']') + 1;
 
       if (jsonStart == -1 || jsonEnd <= jsonStart) {
+        debugPrint(
+            '[_parseAIRecommendations] No valid JSON array found in response');
+        debugPrint(
+            '[_parseAIRecommendations] First 500 chars: ${aiResponse.substring(0, min(500, aiResponse.length))}');
         throw Exception('No valid JSON found in AI response');
       }
 
-      final jsonString = aiResponse.substring(jsonStart, jsonEnd);
+      final jsonString = cleaned.substring(jsonStart, jsonEnd);
       final List<dynamic> aiRecommendations = jsonDecode(jsonString);
 
       final recommendations = <PersonalizedRecommendation>[];
@@ -572,40 +617,155 @@ Response format (JSON array):
     final mightLove = <PersonalizedRecommendation>[];
     final touchAgain = <PersonalizedRecommendation>[];
 
-    for (final topic in availableTopics) {
-      final topicName = topic['name'] as String;
-      final performance = performanceData[topicName];
+    final now = DateTime.now();
 
-      if (performance == null) {
+    final spacedRepetitionCandidates = performanceData.entries.where((entry) {
+      if (entry.value.lastAttempted == null) return false;
+      final daysSince = now.difference(entry.value.lastAttempted!).inDays;
+      return daysSince >= 7;
+    }).toList();
+
+    debugPrint(
+        '[Fallback] Found ${spacedRepetitionCandidates.length} spaced repetition candidates');
+
+    for (final entry in spacedRepetitionCandidates) {
+      final topicName = entry.key;
+      final performance = entry.value;
+      final daysSince = now.difference(performance.lastAttempted!).inDays;
+
+      final matchingTopic = availableTopics.firstWhere(
+        (t) => t['name'] == topicName,
+        orElse: () => <String, dynamic>{},
+      );
+
+      if (matchingTopic.isNotEmpty) {
+        touchAgain.add(PersonalizedRecommendation(
+          topicId: matchingTopic['id'] as String,
+          topicName: topicName,
+          category: 'touch_again',
+          reason:
+              'Last practiced $daysSince days ago - perfect time to review and retain your knowledge',
+          score: 0.75 + (min(daysSince, 30) / 100),
+          difficulty: matchingTopic['difficulty'] as String? ?? 'Medium',
+          estimatedTime: matchingTopic['estimated_time_minutes'] as int? ?? 15,
+        ));
+      }
+
+      if (touchAgain.length >= 6) break;
+    }
+
+    final improvementCandidates = performanceData.entries.where((entry) {
+      final accuracy = entry.value.accuracy;
+      return accuracy >= 0.6 && accuracy < 0.8;
+    }).toList()
+      ..sort((a, b) => b.value.attempts.compareTo(a.value.attempts));
+
+    debugPrint(
+        '[Fallback] Found ${improvementCandidates.length} improvement opportunity candidates');
+
+    for (final entry in improvementCandidates) {
+      if (touchAgain.length >= 6) break;
+
+      final topicName = entry.key;
+      final performance = entry.value;
+
+      final matchingTopic = availableTopics.firstWhere(
+        (t) => t['name'] == topicName,
+        orElse: () => <String, dynamic>{},
+      );
+
+      if (matchingTopic.isNotEmpty &&
+          !touchAgain.any((r) => r.topicName == topicName)) {
+        touchAgain.add(PersonalizedRecommendation(
+          topicId: matchingTopic['id'] as String,
+          topicName: topicName,
+          category: 'touch_again',
+          reason:
+              'You\'re ${(performance.accuracy * 100).toStringAsFixed(0)}% there - let\'s push to mastery level',
+          score: 0.7 + (performance.attempts / 20),
+          difficulty: matchingTopic['difficulty'] as String? ?? 'Medium',
+          estimatedTime: matchingTopic['estimated_time_minutes'] as int? ?? 15,
+        ));
+      }
+    }
+
+    if (touchAgain.length < 6) {
+      final lowAttemptCandidates = performanceData.entries.where((entry) {
+        return entry.value.attempts < 3 && entry.value.attempts > 0;
+      }).toList()
+        ..sort((a, b) => b.value.accuracy.compareTo(a.value.accuracy));
+
+      debugPrint(
+          '[Fallback] Found ${lowAttemptCandidates.length} low-attempt candidates');
+
+      for (final entry in lowAttemptCandidates) {
+        if (touchAgain.length >= 6) break;
+
+        final topicName = entry.key;
+        final performance = entry.value;
+
+        final matchingTopic = availableTopics.firstWhere(
+          (t) => t['name'] == topicName,
+          orElse: () => <String, dynamic>{},
+        );
+
+        if (matchingTopic.isNotEmpty &&
+            !touchAgain.any((r) => r.topicName == topicName)) {
+          touchAgain.add(PersonalizedRecommendation(
+            topicId: matchingTopic['id'] as String,
+            topicName: topicName,
+            category: 'touch_again',
+            reason:
+                'Build consistency with more practice - strengthen your foundation',
+            score: 0.65,
+            difficulty: matchingTopic['difficulty'] as String? ?? 'Medium',
+            estimatedTime:
+                matchingTopic['estimated_time_minutes'] as int? ?? 15,
+          ));
+        }
+      }
+    }
+
+    final attemptedTopicNames = performanceData.keys.toSet();
+
+    for (final topic in availableTopics) {
+      if (mightLove.length >= 6) break;
+
+      final topicName = topic['name'] as String;
+
+      if (!attemptedTopicNames.contains(topicName)) {
+        final relatedToStrong = performanceData.entries.any((entry) {
+          if (entry.value.accuracy < 0.75) return false;
+          final category1 = topic['category'] as String?;
+          final matchingTopics =
+              availableTopics.where((t) => t['name'] == entry.key);
+          if (matchingTopics.isEmpty) return false;
+          final category2 = matchingTopics.first['category'] as String?;
+          return category1 != null &&
+              category2 != null &&
+              category1 == category2;
+        });
+
+        final reason = relatedToStrong
+            ? 'Related to topics you\'re already strong in - build on your success'
+            : 'Expand your knowledge with this fresh topic';
+
         mightLove.add(PersonalizedRecommendation(
           topicId: topic['id'] as String,
           topicName: topicName,
           category: 'might_love',
-          reason: 'New topic to explore based on your interests',
-          score: 0.6,
+          reason: reason,
+          score: relatedToStrong ? 0.7 : 0.6,
           difficulty: topic['difficulty'] as String? ?? 'Medium',
           estimatedTime: topic['estimated_time_minutes'] as int? ?? 15,
+          topicDescription: (topic['description'] as String?)?.substring(
+              0, min((topic['description'] as String?)?.length ?? 0, 100)),
         ));
-      } else {
-        final needsReview =
-            performance.accuracy < 0.8 || performance.attempts < 3;
-        if (needsReview) {
-          touchAgain.add(PersonalizedRecommendation(
-            topicId: topic['id'] as String,
-            topicName: topicName,
-            category: 'touch_again',
-            reason: performance.accuracy < 0.8
-                ? 'Improve your accuracy from ${(performance.accuracy * 100).toStringAsFixed(0)}%'
-                : 'Practice makes perfect - strengthen your skills',
-            score: 0.7,
-            difficulty: topic['difficulty'] as String? ?? 'Medium',
-            estimatedTime: topic['estimated_time_minutes'] as int? ?? 15,
-          ));
-        }
       }
-
-      if (mightLove.length >= 6 && touchAgain.length >= 6) break;
     }
+
+    debugPrint(
+        '[Fallback] Generated ${mightLove.length} might_love and ${touchAgain.length} touch_again recommendations');
 
     recommendations.addAll(mightLove.take(6));
     recommendations.addAll(touchAgain.take(6));
@@ -623,7 +783,7 @@ Response format (JSON array):
       String userId) async {
     try {
       final preferences = await SupabaseService.client
-          .from('user_preferences')
+          .from('user_quiz_preferences')
           .select('*')
           .eq('user_id', userId)
           .maybeSingle();

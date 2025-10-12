@@ -12,7 +12,8 @@ final userPathDataProvider = FutureProvider<Map<String, dynamic>?>((ref) async {
     data: (user) async {
       if (user == null) return null;
       try {
-        final path = await ref.watch(activeLearningPathProvider(user['id']).future);
+        final path =
+            await ref.watch(activeLearningPathProvider(user['id']).future);
         if (path != null) {
           ref.read(userPathProvider.notifier).state = path;
         }
@@ -79,7 +80,8 @@ final initializePathProvider =
     data: (user) async {
       if (user == null) return null;
       try {
-        final path = await ref.read(activeLearningPathProvider(user['id']).future);
+        final path =
+            await ref.read(activeLearningPathProvider(user['id']).future);
         return path;
       } catch (e) {
         debugPrint('Error initializing path: $e');
@@ -121,19 +123,34 @@ final completedPathsProvider =
 final activeLearningPathProvider =
     FutureProvider.family<Map<String, dynamic>?, String>((ref, userId) async {
   try {
-    final userPath = await SupabaseService.client
+    final userPathResults = await SupabaseService.client
         .from('user_learning_paths')
         .select(
             'id, path_id, current_step, started_at, completed_at, is_complete, duration_days, daily_minutes, level, ai_path_json')
         .eq('user_id', userId)
         .is_('completed_at', null)
-        .maybeSingle();
-    if (userPath == null) return null;
-    final learningPath = await SupabaseService.client
+        .order('started_at', ascending: false);
+
+    if (userPathResults.isEmpty) return null;
+
+    final userPath = userPathResults.first;
+
+    final pathId = userPath['path_id'];
+
+    if (pathId == null) {
+      return null;
+    }
+
+    final learningPathResults = await SupabaseService.client
         .from('learning_paths')
         .select('id, name, description, is_active')
-        .eq('id', userPath['path_id'])
-        .single();
+        .eq('id', pathId);
+
+    if (learningPathResults.isEmpty) {
+      return null;
+    }
+
+    final learningPath = learningPathResults.first;
     if (learningPath == null) return null;
     final pathTopics = await SupabaseService.client
         .from('learning_path_topics')
@@ -145,6 +162,57 @@ final activeLearningPathProvider =
         .select('*')
         .eq('user_path_id', userPath['id'])
         .order('day', ascending: true);
+
+    if (pathChallenges.isEmpty && pathTopics.isNotEmpty) {
+      final challengesToInsert = pathTopics.map((topic) {
+        final topicData = topic['topics'];
+        final topicName = topicData != null && topicData['name'] != null
+            ? topicData['name']
+            : 'Topic ${topic['step_number']}';
+        return {
+          'user_path_id': userPath['id'],
+          'day': topic['step_number'],
+          'topic': topicName,
+          'challenge_type': 'quiz',
+          'title': topicName,
+          'description': topic['description'] ?? '',
+          'completed': false,
+        };
+      }).toList();
+
+      await SupabaseService.client
+          .from('user_path_challenges')
+          .insert(challengesToInsert);
+
+      final newPathChallenges = await SupabaseService.client
+          .from('user_path_challenges')
+          .select('*')
+          .eq('user_path_id', userPath['id'])
+          .order('day', ascending: true);
+      final Map<String, dynamic>? metadata =
+          userPath['ai_path_json'] as Map<String, dynamic>?;
+
+      return {
+        'id': learningPath['id'],
+        'name': learningPath['name'],
+        'description': learningPath['description'],
+        'is_active': learningPath['is_active'],
+        'current_step': userPath['current_step'] ?? 1,
+        'user_path_id': userPath['id'],
+        'started_at': userPath['started_at'],
+        'completed_at': userPath['completed_at'],
+        'is_complete': userPath['is_complete'] ?? false,
+        'duration_days': userPath['duration_days'] as int? ?? 0,
+        'daily_minutes': userPath['daily_minutes'] as int? ?? 0,
+        'level': userPath['level'] as String? ?? '',
+        'ai_path_json': userPath['ai_path_json'] as Map<String, dynamic>?,
+        'topics': pathTopics,
+        'challenges': newPathChallenges, // Use newly created challenges
+        'metadata': metadata,
+        'total_steps': newPathChallenges.length,
+      };
+    }
+
     final Map<String, dynamic>? metadata =
         userPath['ai_path_json'] as Map<String, dynamic>?;
     return {
@@ -164,7 +232,9 @@ final activeLearningPathProvider =
       'topics': pathTopics,
       'challenges': pathChallenges,
       'metadata': metadata,
-      'total_steps': pathTopics.length,
+      'total_steps': pathChallenges.isNotEmpty
+          ? pathChallenges.length
+          : pathTopics.length, // ✅ Prefer challenges count
     };
   } catch (e) {
     debugPrint('Error fetching active learning path: $e');

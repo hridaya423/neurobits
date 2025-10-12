@@ -135,6 +135,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Neurobits'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
         actions: [
           IconButton(
             icon: const Icon(Icons.person_outline),
@@ -175,322 +177,414 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final userPoints = user['points'] ?? 0;
     List<dynamic> filteredChallenges = [];
     filteredChallenges = challenges.value ?? [];
+
+    final pathChallengesAsync =
+        userPath != null && userPath['user_path_id'] != null
+            ? ref.watch(userPathChallengesProvider(userPath['user_path_id']))
+            : null;
+
+    List<Map<String, dynamic>> pathChallenges = [];
     int currentStep = 1;
     int totalSteps = 1;
     String? currentTopicName;
     String? currentTopicDescription;
-    List<Map<String, dynamic>> pathChallenges = [];
-    int currentIndex = 0;
-    if (userPath != null && userPath['user_path_id'] != null) {
-      final pathChallengesAsync =
-          ref.watch(userPathChallengesProvider(userPath['user_path_id']));
-      pathChallengesAsync.whenData((challenges) {
-        pathChallenges = challenges;
-        totalSteps = challenges.length;
-        if (userPath['current_step'] != null) {
-          currentStep = userPath['current_step'];
-          currentIndex = currentStep - 1;
-          if (currentIndex < challenges.length) {
-            final currentChallenge = challenges[currentIndex];
-            currentTopicName = currentChallenge['topic'];
-            currentTopicDescription = currentChallenge['description'];
-          }
-        }
-      });
-      final topics = userPath['topics'] as List<dynamic>?;
-      if (topics != null && topics.isNotEmpty) {
+    int currentChallengeIndex = 0;
+
+    if (userPath != null &&
+        userPath['user_path_id'] != null &&
+        pathChallengesAsync != null) {
+      pathChallenges = pathChallengesAsync.when(
+        data: (data) => data,
+        loading: () => [],
+        error: (_, __) => [],
+      );
+
+      totalSteps = pathChallenges.length;
+      currentStep = userPath['current_step'] ?? 1;
+
+      if (pathChallenges.isNotEmpty) {
+        currentChallengeIndex =
+            (currentStep - 1).clamp(0, pathChallenges.length - 1);
+      }
+
+      if (pathChallenges.isNotEmpty &&
+          currentChallengeIndex < pathChallenges.length) {
+        final currentChallenge = pathChallenges[currentChallengeIndex];
+        currentTopicName = currentChallenge['topic'] as String?;
+        currentTopicDescription = currentChallenge['description'] as String?;
+      }
+
+      if (pathChallenges.isNotEmpty) {
+        final pathTopicNames = pathChallenges
+            .map((c) => c['topic']?.toString().toLowerCase())
+            .where((t) => t != null && t.isNotEmpty)
+            .toSet();
+
         filteredChallenges = filteredChallenges.where((c) {
-          final challengeTopic = c['topic']?.toString() ?? '';
-          return topics.any((t) =>
-              (t['topic']?.toString() ?? '').toLowerCase() ==
-              challengeTopic.toLowerCase());
+          final challengeTopic = c['topic']?.toString().toLowerCase() ?? '';
+          return pathTopicNames.contains(challengeTopic);
         }).toList();
       }
     }
+
     final bool isInLearningPathMode =
         userPath != null && userPath['user_path_id'] != null;
     return RefreshIndicator(
-      onRefresh: _refreshData,
-      child: SingleChildScrollView(
-        child: Column(
-          children: [
-            const SizedBox(height: 16),
-            if (isInLearningPathMode) ...[
-              LearningPathBanner(
-                path: userPath,
-                currentStep: pathChallenges
-                    .where((challenge) => challenge['completed'] == true)
-                    .length,
-                totalSteps: pathChallenges.length,
-                onChangePath: () async {
-                  final bool? pathChanged = await Navigator.push<bool?>(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => LearningPathOnboardingScreen()),
-                  );
-                  if (pathChanged == true && mounted) {
-                    await _refreshData();
-                  }
-                },
-              ),
-              Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: PathTopicProgressBar(
-                        currentStep: pathChallenges
-                            .where(
-                                (challenge) => challenge['completed'] == true)
-                            .length,
-                        totalSteps: pathChallenges.length,
-                        topicName: currentTopicName ?? 'No Topic',
-                        topicDescription: currentTopicDescription ??
-                            'No challenges available',
+        onRefresh: _refreshData,
+        child: SafeArea(
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                const SizedBox(height: 16),
+                Container(
+                  margin:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [
+                        Color(0xFF1a1a2e),
+                        Color(0xFF16213e),
+                        Color(0xFF0f4c75),
+                        Color(0xFF3282b8),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      stops: [0.0, 0.3, 0.6, 1.0],
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF3282b8).withOpacity(0.3),
+                        blurRadius: 20,
+                        spreadRadius: 2,
                       ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.map),
-                      tooltip: 'View Roadmap',
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const LearningPathRoadmapScreen(),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.explore_outlined),
-                    label: const Text("Switch to Free Mode"),
-                    onPressed: () async {
-                      final confirm = await showDialog<bool>(
-                        context: context,
-                        builder: (context) => AlertDialog(
-                          title: const Text('Switch to Free Mode?'),
-                          content: const Text(
-                              'Your progress in the current path will be saved. You can select it again later from the Onboarding screen.'),
-                          actions: [
-                            TextButton(
-                                onPressed: () =>
-                                    Navigator.of(context).pop(false),
-                                child: const Text('Cancel')),
-                            TextButton(
-                                onPressed: () =>
-                                    Navigator.of(context).pop(true),
-                                child: const Text('Switch Mode')),
+                      BoxShadow(
+                        color: const Color(0xFF0f4c75).withOpacity(0.2),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      const Text('🪄', style: TextStyle(fontSize: 32)),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Yer a Wizard, ${user?['email']?.toString().split('@')[0].toUpperCase() ?? 'Harry'}!',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Keep learning and unlock your magical potential ✨',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 14,
+                              ),
+                            ),
                           ],
                         ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (isInLearningPathMode) ...[
+                  LearningPathBanner(
+                    path: userPath,
+                    currentStep: pathChallenges
+                        .where((challenge) => challenge['completed'] == true)
+                        .length,
+                    totalSteps: pathChallenges.length,
+                    onChangePath: () async {
+                      final bool? pathChanged = await Navigator.push<bool?>(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => LearningPathOnboardingScreen()),
                       );
-                      if (confirm == true) {
-                        ref.read(userPathProvider.notifier).state = null;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                              content: Text('Switched to Free Mode.')),
-                        );
+                      if (pathChanged == true && mounted) {
+                        await _refreshData();
                       }
                     },
-                    style: OutlinedButton.styleFrom(
-                      side: BorderSide(
-                          color: Theme.of(context).colorScheme.primary),
-                      foregroundColor: Theme.of(context).colorScheme.primary,
-                    ),
                   ),
-                ),
-              ),
-              if (pathChallenges.isNotEmpty &&
-                  currentIndex < pathChallenges.length)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                  child: LearningPathChallengeCard(
-                    challenge: pathChallenges[currentIndex],
-                    isCurrent: true,
-                  ),
-                ),
-            ],
-            if (userPath == null || userPath['user_path_id'] == null) ...[
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .primaryContainer
-                      .withOpacity(0.3),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                margin: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 30,
-                      backgroundColor: Theme.of(context).colorScheme.primary,
-                      child: Text(
-                        user['email'].toString().substring(0, 1).toUpperCase(),
-                        style:
-                            const TextStyle(fontSize: 24, color: Colors.white),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Welcome ${user['email']}',
-                            style: Theme.of(context).textTheme.titleMedium,
+                  Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: PathTopicProgressBar(
+                            currentStep: pathChallenges
+                                .where((challenge) =>
+                                    challenge['completed'] == true)
+                                .length,
+                            totalSteps: pathChallenges.length,
+                            topicName: currentTopicName ?? 'No Topic',
+                            topicDescription: currentTopicDescription ??
+                                'No challenges available',
                           ),
-                          Text('Points: $userPoints'),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              ref.watch(completedPathsProvider(user['id'])).when(
-                    loading: () => const SizedBox(),
-                    error: (e, _) => const SizedBox(),
-                    data: (completedPaths) {
-                      if (completedPaths.isEmpty) return const SizedBox();
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16.0, vertical: 0.0),
-                        child: ElevatedButton.icon(
-                          icon: const Icon(Icons.history),
-                          label: const Text('Review Completed Paths'),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.map),
+                          tooltip: 'View Roadmap',
                           onPressed: () {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (_) => const CompletedPathsScreen(),
+                                builder: (_) =>
+                                    const LearningPathRoadmapScreen(),
                               ),
                             );
                           },
                         ),
-                      );
-                    },
-                  ),
-              const SizedBox(height: 16),
-            ],
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Theme.of(context)
-                    .colorScheme
-                    .secondaryContainer
-                    .withOpacity(0.2),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (userPath == null || userPath['user_path_id'] == null) ...[
-                    Text('What do you want to train on today?',
-                        style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 12),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _topicController,
-                            decoration: InputDecoration(
-                              hintText: 'Enter topic (e.g., Python Functions)',
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 14),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        _buildActionButton(context, ref),
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    SizedBox(
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16.0, vertical: 8.0),
+                    child: SizedBox(
                       width: double.infinity,
-                      child: ElevatedButton.icon(
-                        icon: const Icon(Icons.auto_awesome),
-                        label: const Text('Start a Learning Path'),
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.explore_outlined),
+                        label: const Text("Switch to Free Mode"),
                         onPressed: () async {
-                          final bool? pathSelected =
-                              await Navigator.push<bool?>(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => LearningPathOnboardingScreen(),
+                          final confirm = await showDialog<bool>(
+                            context: context,
+                            builder: (context) => AlertDialog(
+                              title: const Text('Switch to Free Mode?'),
+                              content: const Text(
+                                  'Your progress in the current path will be saved. You can select it again later from the Onboarding screen.'),
+                              actions: [
+                                TextButton(
+                                    onPressed: () =>
+                                        Navigator.of(context).pop(false),
+                                    child: const Text('Cancel')),
+                                TextButton(
+                                    onPressed: () =>
+                                        Navigator.of(context).pop(true),
+                                    child: const Text('Switch Mode')),
+                              ],
                             ),
                           );
-                          if (pathSelected == true && mounted) {
-                            await _refreshData();
+                          if (confirm == true) {
+                            ref.read(userPathProvider.notifier).state = null;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                  content: Text('Switched to Free Mode.')),
+                            );
                           }
                         },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor:
-                              Theme.of(context).colorScheme.primary,
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(
+                              color: Theme.of(context).colorScheme.primary),
                           foregroundColor:
-                              Theme.of(context).colorScheme.onPrimary,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
+                              Theme.of(context).colorScheme.primary,
                         ),
                       ),
                     ),
-                  ] else ...[
-                    Text('Suggested Topics:',
-                        style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: pathChallenges
-                          .skip(currentIndex)
-                          .take(3)
-                          .map((challenge) => ActionChip(
-                                label: Text(_capitalizeTopicName(
-                                    challenge['topic'] ?? '')),
-                                onPressed: () {
-                                  final topic = challenge['topic'] ?? '';
-                                  if (topic.isNotEmpty) {
-                                    context.push('/topic/$topic');
-                                  }
-                                },
-                              ))
-                          .toList(),
+                  ),
+                  if (pathChallenges.isNotEmpty &&
+                      currentChallengeIndex < pathChallenges.length)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                      child: LearningPathChallengeCard(
+                        challenge: pathChallenges[currentChallengeIndex],
+                        isCurrent: true,
+                      ),
                     ),
-                  ],
                 ],
-              ),
+                if (userPath == null || userPath['user_path_id'] == null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .primaryContainer
+                          .withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    margin: const EdgeInsets.all(16),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 30,
+                          backgroundColor:
+                              Theme.of(context).colorScheme.primary,
+                          child: Text(
+                            user['email']
+                                .toString()
+                                .substring(0, 1)
+                                .toUpperCase(),
+                            style: const TextStyle(
+                                fontSize: 24, color: Colors.white),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Welcome ${user['email']}',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              Text('Points: $userPoints'),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ref.watch(completedPathsProvider(user['id'])).when(
+                        loading: () => const SizedBox(),
+                        error: (e, _) => const SizedBox(),
+                        data: (completedPaths) {
+                          if (completedPaths.isEmpty) return const SizedBox();
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16.0, vertical: 0.0),
+                            child: ElevatedButton.icon(
+                              icon: const Icon(Icons.history),
+                              label: const Text('Review Completed Paths'),
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        const CompletedPathsScreen(),
+                                  ),
+                                );
+                              },
+                            ),
+                          );
+                        },
+                      ),
+                  const SizedBox(height: 16),
+                ],
+                Container(
+                  width: double.infinity,
+                  margin:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .secondaryContainer
+                        .withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (userPath == null ||
+                          userPath['user_path_id'] == null) ...[
+                        Text('What do you want to train on today?',
+                            style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 12),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _topicController,
+                                decoration: InputDecoration(
+                                  hintText:
+                                      'Enter topic (e.g., Python Functions)',
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 14),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            _buildActionButton(context, ref),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            icon: const Icon(Icons.auto_awesome),
+                            label: const Text('Start a Learning Path'),
+                            onPressed: () async {
+                              final bool? pathSelected =
+                                  await Navigator.push<bool?>(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      LearningPathOnboardingScreen(),
+                                ),
+                              );
+                              if (pathSelected == true && mounted) {
+                                await _refreshData();
+                              }
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor:
+                                  Theme.of(context).colorScheme.primary,
+                              foregroundColor:
+                                  Theme.of(context).colorScheme.onPrimary,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                            ),
+                          ),
+                        ),
+                      ] else ...[
+                        Text('Suggested Topics:',
+                            style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: pathChallenges
+                              .skip(currentChallengeIndex)
+                              .take(3)
+                              .map((challenge) => ActionChip(
+                                    label: Text(_capitalizeTopicName(
+                                        challenge['topic'] ?? '')),
+                                    onPressed: () {
+                                      final topic = challenge['topic'] ?? '';
+                                      if (topic.isNotEmpty) {
+                                        context.push('/topic/$topic');
+                                      }
+                                    },
+                                  ))
+                              .toList(),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                  child: personalizedRecommendationsAsync.when(
+                    data: (recommendations) {
+                      if (recommendations.isEmpty) {
+                        return _buildFallbackTopics(
+                            context, trendingTopicsAsync);
+                      }
+                      return _buildPersonalizedRecommendations(
+                          context, recommendations);
+                    },
+                    loading: () => _buildRecommendationsSkeleton(),
+                    error: (_, __) =>
+                        _buildFallbackTopics(context, trendingTopicsAsync),
+                  ),
+                ),
+              ],
             ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-              child: personalizedRecommendationsAsync.when(
-                data: (recommendations) {
-                  if (recommendations.isEmpty) {
-                    return _buildFallbackTopics(context, trendingTopicsAsync);
-                  }
-                  return _buildPersonalizedRecommendations(
-                      context, recommendations);
-                },
-                loading: () => _buildRecommendationsSkeleton(),
-                error: (_, __) =>
-                    _buildFallbackTopics(context, trendingTopicsAsync),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+          ),
+        ));
   }
 
   Color _getDifficultyColor(dynamic difficulty) {

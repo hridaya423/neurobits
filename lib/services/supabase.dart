@@ -677,102 +677,104 @@ class SupabaseService {
     try {
       final userPathRes = await client
           .from('user_learning_paths')
-          .select(
-              'id, path_id, current_step, learning_paths(id, name), ai_path_json')
+          .select('id, path_id, current_step, learning_paths(id, name)')
           .eq('user_id', userId)
           .is_('completed_at', null)
           .maybeSingle();
+
       if (userPathRes == null) {
-        debugPrint(
-            '[checkAndAdvancePathStep] No active learning path found for user $userId');
+        debugPrint('[checkAndAdvancePathStep] No active learning path found');
         return false;
       }
+
       final userPathId = userPathRes['id'];
-      final currentStep = userPathRes['current_step'] as int? ?? 1;
-      double passThreshold = 0.75;
-      final Map<String, dynamic>? meta =
-          (userPathRes['ai_path_json'] as Map<String, dynamic>?);
-      if (meta != null && meta['threshold'] != null) {
-        final threshold = meta['threshold'];
-        if (threshold is num) {
-          passThreshold = threshold.toDouble();
+      final learningPathName = userPathRes['learning_paths']?['name'] ?? 'Unknown Path';
+
+      final pathChallenges = await client
+          .from('user_path_challenges')
+          .select('*')
+          .eq('user_path_id', userPathId)
+          .order('day', ascending: true);
+
+      if (pathChallenges.isEmpty) {
+        return false;
+      }
+
+      int? currentChallengeIndex;
+      for (int i = 0; i < pathChallenges.length; i++) {
+        if (pathChallenges[i]['completed'] != true) {
+          currentChallengeIndex = i;
+          break;
         }
       }
-      if (passThreshold < 0.5) passThreshold = 0.5;
-      final pathId = userPathRes['path_id'];
-      final learningPathName =
-          userPathRes['learning_paths']?['name'] ?? 'Unknown Path';
-      debugPrint(
-          '[checkAndAdvancePathStep] User $userId is on step $currentStep of path $userPathId ($learningPathName)');
-      final currentStepTopic = await client
-          .from('learning_path_topics')
-          .select('topic')
-          .eq('path_id', pathId)
-          .eq('step_number', currentStep)
-          .maybeSingle();
-      if (currentStepTopic == null || currentStepTopic['topic'] == null) {
-        debugPrint(
-            '[checkAndAdvancePathStep] No topic found for step $currentStep in path $pathId');
-        return false;
+
+      if (currentChallengeIndex == null) {
+        debugPrint('[checkAndAdvancePathStep] All challenges completed! Marking path as complete.');
+        await client.from('user_learning_paths').update({
+          'current_step': pathChallenges.length,
+          'is_complete': true,
+          'completed_at': DateTime.now().toIso8601String()
+        }).eq('id', userPathId);
+        return true;
       }
-      final String currentTopicName =
-          currentStepTopic['topic'] as String? ?? 'Unknown Topic';
+
+      final currentChallenge = pathChallenges[currentChallengeIndex];
+      final currentTopic = currentChallenge['topic'] as String?;
+      final currentChallengeId = currentChallenge['id'];
+
       final topicData = await client
           .from('topics')
           .select('id')
-          .eq('name', currentTopicName)
+          .ilike('name', currentTopic ?? '')
           .maybeSingle();
-      if (topicData == null || topicData['id'] == null) {
-        debugPrint(
-            '[checkAndAdvancePathStep] No topic data found for name $currentTopicName');
+
+      if (topicData == null) {
+        debugPrint('[checkAndAdvancePathStep] Topic "$currentTopic" not found in database');
         return false;
       }
-      final currentTopicId = topicData['id'] as String;
+
+      final topicId = topicData['id'] as String;
+
       final topicStats = await client
           .from('user_topic_stats')
-          .select('attempts, correct, total')
+          .select('attempts, correct, total, avg_accuracy, last_attempted')
           .eq('user_id', userId)
-          .eq('topic_id', currentTopicId)
+          .eq('topic_id', topicId)
           .maybeSingle();
-      final int correct = topicStats?['correct'] ?? 0;
-      final int total = topicStats?['total'] ?? 0;
-      final double accuracy = total > 0 ? correct / total : 0.0;
-      debugPrint(
-          '[checkAndAdvancePathStep] Topic stats for "$currentTopicName": correct=$correct, total=$total, accuracy=${accuracy.toStringAsFixed(2)}');
-      final bool hasPassedCurrentTopic = accuracy >= passThreshold;
-      if (hasPassedCurrentTopic) {
-        debugPrint(
-            '[checkAndAdvancePathStep] User $userId has passed the current topic "$currentTopicName" (Required accuracy: ${passThreshold.toStringAsFixed(2)}%). Advancing step...');
+
+      if (topicStats == null) {
+        return false;
+      }
+
+      final int attempts = topicStats['attempts'] ?? 0;
+      final double avgAccuracy = topicStats['avg_accuracy'] ?? 0.0;
+      final String? lastAttempted = topicStats['last_attempted'];
+
+      final bool hasPassed = attempts > 0 && avgAccuracy >= 0.75;
+
+      if (hasPassed) {
+
         await client
             .from('user_path_challenges')
             .update({'completed': true})
-            .eq('user_path_id', userPathId)
-            .eq('day', currentStep);
-        final nextStep = currentStep + 1;
-        final stepsCountResponse = await client
-            .from('learning_path_topics')
-            .select('*', const FetchOptions(count: CountOption.exact))
-            .eq('path_id', pathId);
-        final totalSteps = stepsCountResponse.count ?? 0;
-        if (nextStep > totalSteps) {
-          debugPrint(
-              '[checkAndAdvancePathStep] User $userId completed the final step ($currentStep). Marking path $userPathId as complete.');
-          await client.from('user_learning_paths').update({
-            'current_step': currentStep,
-            'is_complete': true,
-            'completed_at': DateTime.now().toIso8601String()
-          }).eq('id', userPathId);
-        } else {
-          await client
-              .from('user_learning_paths')
-              .update({'current_step': nextStep}).eq('id', userPathId);
-          debugPrint(
-              '[checkAndAdvancePathStep] Advanced user $userId to step $nextStep for path $userPathId.');
+            .eq('id', currentChallengeId);
+
+        int newCurrentStep = currentChallengeIndex + 2;
+        if (newCurrentStep > pathChallenges.length) {
+          newCurrentStep = pathChallenges.length;
         }
+
+        await client
+            .from('user_learning_paths')
+            .update({'current_step': newCurrentStep})
+            .eq('id', userPathId);
+
+        debugPrint('[checkAndAdvancePathStep] Advanced to step $newCurrentStep/${pathChallenges.length}');
         return true;
+      } else {
+        return false;
       }
-      return false;
-    } catch (e) {
+    } catch (e, stackTrace) {
       debugPrint('[checkAndAdvancePathStep] Error: $e');
       return false;
     }

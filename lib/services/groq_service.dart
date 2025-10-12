@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:neurobits/services/supabase.dart';
@@ -56,21 +55,19 @@ class GroqApiError implements Exception {
 }
 
 class GroqService {
-  static const String _baseUrl =
-      'https://api.groq.com/openai/v1/chat/completions';
-  static String? _apiKey;
-  static bool _validInput = false;
+  static const String _baseUrl = 'https://ai.hackclub.com/chat/completions';
+  static const String _defaultModel = 'qwen/qwen3-32b'; 
+  static bool _validInput = true; 
   static final RegExp _validInputPattern =
       RegExp(r'^[a-zA-Z0-9\s\-_.,!?()' '"]+\$');
   GroqService._();
-  static Future<void> init() async {
-    const groqKey = String.fromEnvironment('GROQ_API_KEY', defaultValue: '');
-    _apiKey = groqKey.isNotEmpty ? groqKey : dotenv.env['GROQ_API_KEY'];
 
-    if (_apiKey == null || _apiKey!.isEmpty) {
-      debugPrint('Warning: GROQ_API_KEY not found');
-    }
-    _validInput = _apiKey?.isNotEmpty ?? false;
+  static bool isConfigured() {
+    return true; 
+  }
+
+  static Future<void> init() async {
+    _validInput = true;
   }
 
   static String sanitizePrompt(String input) {
@@ -85,6 +82,7 @@ class GroqService {
   static String _filterThinkTags(String content) {
     if (content.isEmpty) return content;
 
+    // Remove Claude-style <think> tags
     String filtered = content.replaceAll(
         RegExp(r'<think[^>]*>.*?</think>', caseSensitive: false, dotAll: true),
         '');
@@ -93,6 +91,14 @@ class GroqService {
         filtered.replaceAll(RegExp(r'<think[^>]*>', caseSensitive: false), '');
     filtered =
         filtered.replaceAll(RegExp(r'</think>', caseSensitive: false), '');
+
+    filtered = filtered.replaceAll(
+        RegExp(r'^(Reasoning|Analysis|Thought|Let me think|Thinking):\s*.*?(?=\n\n|\[|\{)',
+            caseSensitive: false, dotAll: true, multiLine: true),
+        '');
+
+    filtered = filtered.replaceAll(RegExp(r'```json\s*'), '');
+    filtered = filtered.replaceAll(RegExp(r'```\s*'), '');
 
     filtered = filtered.replaceAll(RegExp(r'\n\s*\n\s*\n'), '\n\n');
     filtered = filtered.trim();
@@ -128,14 +134,7 @@ class GroqService {
     return prompt;
   }
 
-  static String _sanitizeInput(String input) {
-    return input.trim().replaceAll(RegExp(r'[^\w\s\-.,?!]'), '');
-  }
-
   static bool _validatePrompt(String prompt) {
-    if (!_validInput || _apiKey == null || _apiKey!.isEmpty) {
-      throw Exception('API key not initialized');
-    }
     if (prompt.isEmpty) {
       throw Exception('Empty prompt');
     }
@@ -151,16 +150,13 @@ class GroqService {
     bool includeInput = false,
     bool includeFillBlank = false,
   }) async {
-    if (_apiKey == null) {
-      throw Exception('GROQ_API_KEY not configured');
-    }
     topic = sanitizePrompt(topic);
     difficulty = sanitizePrompt(difficulty);
     if (!isValidPromptInput(topic) || !isValidPromptInput(difficulty)) {
       throw Exception('Invalid input format');
     }
-    if (count < 1 || count > 20) {
-      throw Exception('Invalid question count');
+    if (count < 1 || count > 50) {
+      throw Exception('Invalid question count - must be between 1 and 50');
     }
     final typeInstruction = _buildTypeInstruction(
         includeCodeChallenges, includeMcqs, includeInput,
@@ -214,10 +210,9 @@ class GroqService {
         Uri.parse(_baseUrl),
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
-          'Authorization': 'Bearer $_apiKey',
         },
         body: jsonEncode({
-          'model': 'deepseek-r1-distill-llama-70b',
+          'model': _defaultModel,
           'messages': [
             {
               'role': 'system',
@@ -227,7 +222,7 @@ class GroqService {
             {'role': 'user', 'content': prompt}
           ],
           'temperature': 0.7,
-          'max_tokens': 4000,
+          'max_tokens': count > 20 ? 8000 : 4000,
         }),
       );
       if (response.statusCode == 200) {
@@ -246,6 +241,8 @@ class GroqService {
 
           String jsonContent = rawContent.substring(startIndex, endIndex + 1);
 
+          jsonContent = jsonContent.replaceAll(r'\', r'\\');
+
           List<dynamic> parsedQuestions;
           try {
             parsedQuestions = jsonDecode(jsonContent);
@@ -255,11 +252,17 @@ class GroqService {
           }
           final seenQuestions = <String>{};
           final uniqueQuestions = <Map<String, dynamic>>[];
+
           for (final q in parsedQuestions) {
-            if (q is! Map<String, dynamic>) continue;
+            if (q is! Map<String, dynamic>) {
+              continue;
+            }
 
             final questionText = q['question']?.toString().trim() ?? '';
-            if (questionText.isEmpty || seenQuestions.contains(questionText)) {
+            if (questionText.isEmpty) {
+              continue;
+            }
+            if (seenQuestions.contains(questionText)) {
               continue;
             }
 
@@ -268,20 +271,35 @@ class GroqService {
                 includeInput, includeFillBlank)) {
               continue;
             }
+
             bool isValid = true;
             if (type == 'mcq') {
               final options = q['options'];
               final answer = q['answer'];
+
+              bool answerMatchesOption = false;
+              if (options is List && answer is String) {
+                final cleanAnswer = answer.trim().toLowerCase();
+                answerMatchesOption = options.any((opt) =>
+                    opt.toString().trim().toLowerCase() == cleanAnswer);
+              }
+
               isValid = options is List &&
-                  options.length == 4 &&
+                  options.length >= 2 &&
                   answer is String &&
                   answer.isNotEmpty &&
-                  options.contains(answer);
+                  answerMatchesOption;
+
             } else if (type == 'input' ||
                 type == 'fill_blank' ||
                 type == 'code') {
               final solution = q['solution'];
               isValid = solution is String && solution.isNotEmpty;
+
+              if (!isValid) {
+                debugPrint(
+                    '[generateQuestions] ${type.toUpperCase()} validation failed - solution: $solution');
+              }
             }
 
             if (!isValid) continue;
@@ -289,6 +307,7 @@ class GroqService {
             seenQuestions.add(questionText);
             uniqueQuestions.add(Map<String, dynamic>.from(q));
           }
+
           return uniqueQuestions;
         } catch (e) {
           throw Exception('Failed to parse AI response: ${e.toString()}');
@@ -296,12 +315,14 @@ class GroqService {
       } else {
         throw GroqApiError.fromResponse(response);
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('[generateQuestions] Error: $e');
+      debugPrint('[generateQuestions] Stack trace: $stackTrace');
       if (e is GroqApiError) {
         rethrow;
       } else {
         throw Exception(
-            'Unable to create your quiz right now. Please try again in a moment.');
+            'Unable to create your quiz right now. Please try again in a moment. Error: ${e.toString()}');
       }
     }
   }
@@ -318,9 +339,6 @@ class GroqService {
     String? adaptiveDifficulty,
     String? userSelectedDifficulty,
   }) async {
-    if (_apiKey == null) {
-      throw Exception('GROQ_API_KEY not configured');
-    }
     topic = sanitizePrompt(topic);
     difficulty = sanitizePrompt(difficulty);
     if (adaptiveDifficulty != null) {
@@ -371,10 +389,9 @@ class GroqService {
         Uri.parse(_baseUrl),
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
-          'Authorization': 'Bearer $_apiKey',
         },
         body: jsonEncode({
-          'model': 'deepseek-r1-distill-llama-70b',
+          'model': _defaultModel,
           'messages': [
             {
               'role': 'system',
@@ -484,11 +501,7 @@ class GroqService {
     }
   }
 
-  static Future<String> getAIResponse(String prompt) async {
-    if (_apiKey == null) {
-      throw Exception('GROQ_API_KEY not configured');
-    }
-
+  static Future<String> getAIResponse(String prompt, {int? maxTokens}) async {
     prompt = sanitizePrompt(prompt).replaceAll(RegExp(r'\s+'), ' ');
     _validatePrompt(prompt);
 
@@ -496,10 +509,9 @@ class GroqService {
       Uri.parse(_baseUrl),
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer $_apiKey',
       },
       body: jsonEncode({
-        'model': 'deepseek-r1-distill-llama-70b',
+        'model': _defaultModel,
         'messages': [
           {
             'role': 'system',
@@ -508,7 +520,7 @@ class GroqService {
           },
           {'role': 'user', 'content': prompt},
         ],
-        'max_tokens': 2000,
+        'max_tokens': maxTokens ?? 6000,
         'temperature': 0.7,
       }),
     );
@@ -524,9 +536,6 @@ class GroqService {
   }
 
   static Future<String> analyzeQuizPerformance(String summary) async {
-    if (_apiKey == null) {
-      throw Exception('GROQ_API_KEY not configured');
-    }
     summary = sanitizePrompt(summary).replaceAll(RegExp(r'\s+'), ' ');
     _validatePrompt(summary);
     final prompt =
@@ -535,10 +544,9 @@ class GroqService {
       Uri.parse(_baseUrl),
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer $_apiKey',
       },
       body: jsonEncode({
-        'model': 'deepseek-r1-distill-llama-70b',
+        'model': _defaultModel,
         'messages': [
           {
             'role': 'system',
@@ -565,9 +573,6 @@ class GroqService {
 
   static Future<Map<String, dynamic>> generateLearningPath(
       String topic, String level, int durationDays, int dailyMinutes) async {
-    if (_apiKey == null) {
-      throw Exception('GROQ_API_KEY not found in environment variables');
-    }
     topic = sanitizePrompt(topic);
     level = sanitizePrompt(level);
     if (!isValidPromptInput(topic) || !isValidPromptInput(level)) {
@@ -581,28 +586,54 @@ class GroqService {
     }
     final systemPrompt =
         '''You are a world-class curriculum designer and personalized learning path architect. Do NOT output any <think> tags or chain-of-thought reasoning. Create a structured, multi-day learning path as a valid JSON object matching the exact format below. Do not include any additional commentary.
+
+CRITICAL: Make descriptions engaging, specific, and actionable. Avoid generic phrases like "Learn about X". Instead use active, motivating language.
+
 {
+  "path_description": "A compelling 1-2 sentence overview of what the learner will achieve",
   "path": [
     {
       "day": 1,
       "topic": "specific subtopic name",
       "challenge_type": "quiz",
       "title": "engaging title",
-      "description": "brief description under 100 characters"
+      "description": "specific, actionable description that explains what they'll master (under 100 chars)"
     }
   ]
-}''';
+}
+
+Example good descriptions:
+- "Master the fundamentals of functions and return values through hands-on coding"
+- "Build confidence with conditional statements using real-world scenarios"
+- "Explore data structures by implementing your own list and dictionary operations"
+
+Example bad descriptions (avoid these):
+- "Learn about functions"
+- "Topic: Conditionals"
+- "Day 5 - Data structures"
+''';
     final userPrompt =
-        '''Create a personalized $durationDays-day learning path for the topic "$topic" at the $level level with daily sessions of $dailyMinutes minutes. Ensure each day's entry is concise, actionable, and under 100 characters.''';
+        '''Create a personalized $durationDays-day learning path for the topic "$topic" at the $level level with daily sessions of $dailyMinutes minutes.
+
+Learner context:
+- Level: $level (adjust difficulty accordingly)
+- Time per day: $dailyMinutes minutes
+- Duration: $durationDays days
+
+Make the path_description engaging and personalized. For example:
+- Beginner: "Start your journey with..." or "Build a solid foundation in..."
+- Intermediate: "Advance your skills with..." or "Master intermediate concepts through..."
+- Advanced: "Push your expertise with..." or "Tackle advanced challenges in..."
+
+Ensure each day's description is specific, motivating, and under 100 characters.''';
     try {
       final response = await http.post(
         Uri.parse(_baseUrl),
         headers: {
-          'Authorization': 'Bearer $_apiKey',
           'Content-Type': 'application/json; charset=utf-8',
         },
         body: jsonEncode({
-          'model': 'deepseek-r1-distill-llama-70b',
+          'model': _defaultModel,
           'messages': [
             {'role': 'system', 'content': systemPrompt},
             {'role': 'user', 'content': userPrompt}
@@ -613,7 +644,7 @@ class GroqService {
       );
       if (response.statusCode != 200) {
         debugPrint('API error: ${response.statusCode}');
-        return _getFallbackPath(topic, level, durationDays);
+        return await _getIntelligentFallbackPath(topic, level, durationDays);
       }
       final jsonResponse = jsonDecode(response.body);
       String content = jsonResponse['choices'][0]['message']['content'];
@@ -623,14 +654,14 @@ class GroqService {
       final jsonEnd = content.lastIndexOf('}');
       if (jsonStart == -1 || jsonEnd == -1) {
         debugPrint('Invalid JSON format');
-        return _getFallbackPath(topic, level, durationDays);
+        return await _getIntelligentFallbackPath(topic, level, durationDays);
       }
       content = content.substring(jsonStart, jsonEnd + 1);
       try {
         final pathData = jsonDecode(content);
         if (!pathData.containsKey('path') || pathData['path'] is! List) {
           debugPrint('Missing path array');
-          return _getFallbackPath(topic, level, durationDays);
+          return await _getIntelligentFallbackPath(topic, level, durationDays);
         }
         final List<Map<String, dynamic>> cleanedPath = [];
         for (var item in pathData['path']) {
@@ -646,7 +677,7 @@ class GroqService {
         }
         if (cleanedPath.isEmpty) {
           debugPrint('No valid path items');
-          return _getFallbackPath(topic, level, durationDays);
+          return await _getIntelligentFallbackPath(topic, level, durationDays);
         }
         cleanedPath.sort((a, b) => a['day'].compareTo(b['day']));
         while (cleanedPath.length > durationDays) {
@@ -664,11 +695,11 @@ class GroqService {
         };
       } catch (e) {
         debugPrint('JSON parsing error: $e');
-        return _getFallbackPath(topic, level, durationDays);
+        return await _getIntelligentFallbackPath(topic, level, durationDays);
       }
     } catch (e) {
       debugPrint('Error generating learning path: $e');
-      return _getFallbackPath(topic, level, durationDays);
+      return await _getIntelligentFallbackPath(topic, level, durationDays);
     }
   }
 
@@ -699,41 +730,83 @@ class GroqService {
     }
   }
 
-  static Map<String, dynamic> _getFallbackPath(
-      String topic, String level, int durationDays) {
-    final List<Map<String, dynamic>> fallbackPath = [];
-    final topics = [
-      'Introduction to $topic',
-      'Basic $topic Concepts',
-      'Intermediate $topic',
-      'Advanced $topic Concepts',
-      'Practical $topic Applications'
-    ];
-    final types = ['quiz', 'code', 'practice', 'review'];
-    for (int i = 0; i < durationDays; i++) {
-      fallbackPath.add({
-        'day': i + 1,
-        'topic': topics[i % topics.length],
-        'challenge_type': types[i % types.length],
-        'title': '${topics[i % topics.length]} - Day ${i + 1}',
-        'description':
-            'Learn and practice ${topics[i % topics.length]} through a ${types[i % types.length]} challenge.',
-      });
-    }
-    return {
-      'path': fallbackPath,
-      'metadata': {
-        'topic': topic,
-        'level': level,
-        'duration_days': durationDays,
+  static Future<Map<String, dynamic>> _getIntelligentFallbackPath(
+      String topic, String level, int durationDays) async {
+
+    try {
+      final relatedTopics = await SupabaseService.client
+          .from('topics')
+          .select('id, name, difficulty, description, estimated_time_minutes, category')
+          .or('name.ilike.%$topic%,category.ilike.%$topic%,description.ilike.%$topic%')
+          .limit(50);
+
+      List<dynamic> topicsToUse = relatedTopics;
+
+      if (topicsToUse.isEmpty) {
+
+        topicsToUse = await SupabaseService.client
+            .from('topics')
+            .select('id, name, difficulty, description, estimated_time_minutes, category')
+            .limit(50);
       }
-    };
+
+      if (topicsToUse.isEmpty) {
+        throw Exception('Cannot create learning path: no topics available in database');
+      }
+
+
+      final filteredByLevel = topicsToUse.where((t) {
+        final difficulty = (t['difficulty'] as String?)?.toLowerCase() ?? '';
+        final levelLower = level.toLowerCase();
+
+        if (levelLower.contains('beginner') || levelLower.contains('easy')) {
+          return difficulty == 'easy' || difficulty == 'beginner';
+        } else if (levelLower.contains('intermediate') || levelLower.contains('medium')) {
+          return difficulty == 'medium' || difficulty == 'intermediate';
+        } else if (levelLower.contains('advanced') || levelLower.contains('hard')) {
+          return difficulty == 'hard' || difficulty == 'advanced';
+        }
+        return true;
+      }).toList();
+
+      final finalTopics = filteredByLevel.isNotEmpty ? filteredByLevel : topicsToUse;
+
+      final fallbackPath = <Map<String, dynamic>>[];
+
+      for (int i = 0; i < durationDays; i++) {
+        final topicIndex = i % finalTopics.length;
+        final topicData = finalTopics[topicIndex];
+        final dayNum = i + 1;
+
+        fallbackPath.add({
+          'day': dayNum,
+          'topic': topicData['name'] as String,
+          'challenge_type': 'quiz',
+          'title': topicData['name'] as String,
+          'description': (topicData['description'] as String?)?.substring(
+            0, min((topicData['description'] as String?)?.length ?? 0, 100)
+          ) ?? '',
+        });
+      }
+
+      return {
+        'path': fallbackPath,
+        'metadata': {
+          'topic': topic,
+          'level': level,
+          'duration_days': durationDays,
+          'total_steps': fallbackPath.length,
+          'source': 'database_topics',
+        }
+      };
+
+    } catch (e) {
+      debugPrint('Fallback path, CRITICAL ERROR: $e');
+      rethrow;
+    }
   }
 
   static Future<bool> isCodingRelated(String topic) async {
-    if (_apiKey == null) {
-      throw Exception('GROQ_API_KEY not configured');
-    }
     topic = sanitizePrompt(topic);
     if (!isValidPromptInput(topic)) {
       throw Exception('Invalid topic format');
@@ -746,10 +819,9 @@ Topic: "$topic"
       Uri.parse(_baseUrl),
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer $_apiKey',
       },
       body: jsonEncode({
-        'model': 'deepseek-r1-distill-llama-70b',
+        'model': _defaultModel,
         'messages': [
           {
             'role': 'system',
@@ -874,44 +946,8 @@ Topic: "$topic"
     };
   }
 
-  static Future<Map<String, dynamic>?> _getUserPerformanceSummary(
-      String userId, String topic) async {
-    try {
-      final topicData = await SupabaseService.client
-          .from('topics')
-          .select('id')
-          .eq('name', topic)
-          .maybeSingle();
-      if (topicData == null || topicData['id'] == null) {
-        debugPrint("Topic not found in database: $topic");
-        return null;
-      }
-      final stats = await SupabaseService.client
-          .from('user_topic_stats')
-          .select('attempts, avg_accuracy, correct, total, last_attempted')
-          .eq('user_id', userId)
-          .eq('topic_id', topicData['id'])
-          .maybeSingle();
-      if (stats == null) return null;
-      return {
-        'attempts': stats['attempts'],
-        'avg_accuracy': stats['avg_accuracy'],
-        'correct': stats['correct'],
-        'total': stats['total'],
-        'last_attempted': stats['last_attempted'],
-      };
-    } catch (e) {
-      debugPrint("Error fetching performance summary: $e");
-      return null;
-    }
-  }
-
   static Future<List<Map<String, dynamic>>> generateQuizQuestions(
       String topic, int numQuestions) async {
-    if (_apiKey == null) {
-      throw Exception('GROQ_API_KEY not configured');
-    }
-
     final userId = SupabaseService.client.auth.currentUser?.id;
     final moderatedTopic = await moderatePrompt(topic, userId: userId);
     if (moderatedTopic == null) {
@@ -919,8 +955,6 @@ Topic: "$topic"
     }
 
     topic = moderatedTopic;
-
-    const String difficulty = 'Medium';
 
     numQuestions = min(numQuestions, 10);
     final prompt =
@@ -935,10 +969,9 @@ Each question must have:
         Uri.parse(_baseUrl),
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
-          'Authorization': 'Bearer $_apiKey',
         },
         body: jsonEncode({
-          'model': 'deepseek-r1-distill-llama-70b',
+          'model': _defaultModel,
           'messages': [
             {
               'role': 'system',
@@ -964,6 +997,8 @@ Each question must have:
           }
 
           String jsonContent = rawContent.substring(startIndex, endIndex + 1);
+
+          jsonContent = jsonContent.replaceAll(r'\', r'\\');
 
           List<dynamic> parsedQuestions;
           try {
@@ -1008,9 +1043,6 @@ Each question must have:
   }
 
   static Future<String> explainAnswer(String question, String answer) async {
-    if (_apiKey == null) {
-      throw Exception('GROQ_API_KEY not configured');
-    }
     final prompt = '''
 You are an expert tutor. Given the following question and answer, provide a clear, step-by-step, factual explanation of why the answer is correct. Do NOT use uncertain language, generic advice, or phrases like "maybe", "few", "could", etc. Your explanation must be direct, specific, and unambiguous. If the question is a math problem, show the full calculation. If the answer is incorrect, briefly explain why and give the correct answer.
 Question: $question
@@ -1020,10 +1052,9 @@ Answer: $answer
       Uri.parse(_baseUrl),
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer $_apiKey',
       },
       body: jsonEncode({
-        'model': 'deepseek-r1-distill-llama-70b',
+        'model': _defaultModel,
         'messages': [
           {
             'role': 'system',

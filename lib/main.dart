@@ -13,7 +13,7 @@ void main() async {
   try {
     await dotenv.load(fileName: ".env");
   } catch (e) {
-    debugPrint("Note: .env file not found, using dart-define values if available: $e");
+    debugPrint("Warning: .env file not found, will use dart-define values: $e");
   }
 
   try {
@@ -31,7 +31,28 @@ void main() async {
   try {
     await SupabaseService.init();
   } catch (e) {
-    debugPrint("Error initializing SupabaseService: $e");
+    debugPrint("App cannot continue without Supabase");
+    runApp(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error, color: Colors.red, size: 64),
+                const SizedBox(height: 16),
+                const Text('Failed to initialize app'),
+                const SizedBox(height: 8),
+                Text('Error: $e', textAlign: TextAlign.center),
+                const SizedBox(height: 16),
+                const Text('Check that environment variables are configured'),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    return;
   }
 
   runApp(const ProviderScope(child: MyApp()));

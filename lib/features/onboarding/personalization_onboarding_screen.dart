@@ -692,7 +692,7 @@ class _PersonalizationOnboardingScreenState
       final user = SupabaseService.client.auth.currentUser;
       if (user == null) throw Exception('User not found');
 
-      await SupabaseService.client.from('user_preferences').upsert({
+      await SupabaseService.client.from('user_quiz_preferences').upsert({
         'user_id': user.id,
         'learning_goal': _learningGoal,
         'experience_level': _experienceLevel,
