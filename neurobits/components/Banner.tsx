@@ -35,7 +35,7 @@ export default function Banner({ message, storageKey = 'banner-dismissed' }: Ban
         pointerEvents: 'auto'
       }}
     >
-      <div className="container mx-auto px-8 py-5 relative">
+      <div className="px-8 py-5 flex items-center justify-center relative">
         <div className="flex items-center justify-center gap-3">
           <div className="flex items-center justify-center w-8 h-8 rounded-full bg-white/20 backdrop-blur-sm">
             <Sparkles className="w-4 h-4 text-white" strokeWidth={2.5} />
@@ -49,7 +49,7 @@ export default function Banner({ message, storageKey = 'banner-dismissed' }: Ban
         </div>
         <button
           onClick={handleDismiss}
-          className="absolute right-8 top-1/2 -translate-y-1/2 flex items-center justify-center w-8 h-8 hover:bg-white/20 rounded-lg transition-all duration-200 hover:scale-105"
+          className="absolute right-8 flex items-center justify-center w-8 h-8 hover:bg-white/20 rounded-lg transition-all duration-200 hover:scale-105"
           aria-label="Dismiss banner"
         >
           <X className="w-5 h-5 text-white" strokeWidth={2.5} />
