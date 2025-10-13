@@ -1,25 +1,22 @@
 # Neurobits
 
-Neurobits offers a unique and personal learning experience, leveraging adaptive AI to move beyond basic brain training. It crafts tailored learning paths and daily challenges designed specifically for your preferences, skill level, and goals, ensuring a truly individualized journey.
+A brain training app that uses AI to generate personalized learning challenges. Built with Flutter and uses Hackclub AI for now, it adapts to how you learn and keeps things interesting with daily challenges.
 
-## Why Neurobits?
+## What it does
 
-*   **Truly Personalized:** Unlike generic apps, Neurobits creates special learning paths and challenges just for you.
-*   **Adaptive AI:** Advanced AI generates fresh content on demand, adjusts difficulty to match your progress, and provides immediate, helpful feedback.
-*   **Beyond Memorization:** Focuses on deeper learning and engagement, helping you reach your goals faster.
-*   **Stay Motivated:** Tracks learning streaks, visualizes progress, and allows review of completed content to keep you engaged and challenged appropriately.
+This app generates quiz content on the fly based on your progress and preferences. Instead of following a fixed path, the AI creates new challenges and adjusts difficulty as you go. You can track streaks, review past challenges, and follow learning paths that match your goals.
+
+The main idea is to make learning feel less repetitive by generating fresh content each time, while still tracking your progress and keeping you challenged at the right level.
 
 ## Features
 
-*   **Personalized Learning Paths:** AI-generated or curated journeys tailored to individual user needs and goals.
-*   **Adaptive Daily Challenges:** Keeps learning fresh and appropriately difficult based on user progress.
-*   **On-Demand Content Generation:** AI creates new learning material as needed.
-*   **Dynamic Difficulty Adjustment:** Ensures users are always challenged at the right level.
-*   **Instant Feedback:** Provides immediate insights to aid the learning process.
-*   **Progress Tracking:** Monitors learning streaks and overall progress.
-*   **Review Functionality:** Allows revisiting completed material.
-*   **Supabase Backend:** Securely handles user authentication, data storage (stats, progress), and other backend needs.
-*   **Smooth User Experience:** Built with Flutter and Riverpod for a responsive interface, featuring onboarding, notifications, and potentially drag-and-drop interactions.
+- AI-generated learning challenges
+- Dynamic difficulty that adjusts based on your performance
+- Daily challenges to build consistency
+- Learning streaks and progress tracking
+- Custom learning paths tailored to your goals
+- Review functionality for completed challenges
+- User authentication and data storage via Supabase
 
 ## Getting Started
 
@@ -32,11 +29,9 @@ This project requires Flutter to be installed.
     ```
 2.  **Set up environment variables:**
     *   Create a `.env` file in the root directory.
-    *   Add the necessary Supabase and Groq API keys/URLs:
         ```
         SUPABASE_URL=YOUR_SUPABASE_URL
         SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
-        GROQ_API_KEY=YOUR_GROQ_API_KEY
         ```
 3.  **Install dependencies:**
     ```bash
