@@ -18,6 +18,12 @@ The main idea is to make learning feel less repetitive by generating fresh conte
 - Review functionality for completed challenges
 - User authentication and data storage via Supabase
 
+
+
+https://github.com/user-attachments/assets/7859dc25-2acf-4062-b873-e490139d32fe
+
+
+
 ## Getting Started
 
 This project requires Flutter to be installed.
