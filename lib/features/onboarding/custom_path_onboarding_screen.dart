@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/providers.dart';
 import '../../services/supabase.dart';
-import '../../services/groq_service.dart';
+import '../../services/ai_service.dart';
 import '../../core/learning_path_providers.dart';
 import '../../utils/text_utils.dart';
 
@@ -68,7 +68,7 @@ class _CustomPathOnboardingScreenState
       final dailyMinutes = int.parse(_dailyMinutes);
       final level = _level;
 
-      final aiResponse = await GroqService.generateLearningPath(
+      final aiResponse = await AIService.generateLearningPath(
         topic,
         level,
         durationDays,
@@ -105,6 +105,7 @@ class _CustomPathOnboardingScreenState
         'name': '$capitalizedTopic ($level)',
         'description': aiDescription,
         'is_active': true,
+        'created_by': user['id'],
       }).select();
 
       if (pathResults.isEmpty) {
@@ -266,7 +267,7 @@ class _CustomPathOnboardingScreenState
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: _duration,
+                initialValue: _duration,
                 decoration: const InputDecoration(labelText: 'How long?'),
                 items: List.generate(
                   durations.length,
@@ -278,7 +279,7 @@ class _CustomPathOnboardingScreenState
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: _dailyMinutes,
+                initialValue: _dailyMinutes,
                 decoration:
                     const InputDecoration(labelText: 'How much time per day?'),
                 items: List.generate(
@@ -292,7 +293,7 @@ class _CustomPathOnboardingScreenState
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
-                value: _level,
+                initialValue: _level,
                 decoration: const InputDecoration(labelText: 'Select level'),
                 items: levels
                     .map((l) => DropdownMenuItem(value: l, child: Text(l)))

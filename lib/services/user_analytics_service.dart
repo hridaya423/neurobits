@@ -1,5 +1,5 @@
 import 'package:neurobits/services/supabase.dart';
-import 'package:neurobits/services/groq_service.dart';
+import 'package:neurobits/services/ai_service.dart';
 import 'package:neurobits/services/recommendation_cache_service.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:convert';
@@ -51,18 +51,20 @@ class UserAnalyticsService {
     bool forceRefresh = false,
   }) async {
     try {
+      final performanceData = await getUserPerformanceVector(userId);
+      final userPreferences = await _getUserPreferences(userId);
+      final allTopics = await _getAllAvailableTopics();
+
       if (!forceRefresh) {
-        final cached =
-            await RecommendationCacheService.getCachedRecommendations(userId);
+        final cached = await RecommendationCacheService.getCachedRecommendations(
+          userId,
+          userPreferences: userPreferences,
+        );
         if (cached != null && cached.isNotEmpty) {
           debugPrint('✓ Using cached recommendations (${cached.length} items)');
           return cached.take(limit).toList();
         }
       }
-
-      final performanceData = await getUserPerformanceVector(userId);
-      final userPreferences = await _getUserPreferences(userId);
-      final allTopics = await _getAllAvailableTopics();
 
       final aiRecommendations = await _generateAIRecommendations(
         userId: userId,
@@ -73,14 +75,19 @@ class UserAnalyticsService {
       );
 
       await RecommendationCacheService.cacheRecommendations(
-          userId, aiRecommendations);
+        userId,
+        aiRecommendations,
+        userPreferences: userPreferences,
+      );
       debugPrint('✓ Cached ${aiRecommendations.length} recommendations');
 
       return aiRecommendations;
     } catch (e) {
       debugPrint('Error getting personalized recommendations: $e');
-      final cached =
-          await RecommendationCacheService.getCachedRecommendations(userId);
+      final cached = await RecommendationCacheService.getCachedRecommendations(
+        userId,
+        userPreferences: await _getUserPreferences(userId),
+      );
       return cached ?? [];
     }
   }
@@ -175,7 +182,7 @@ Domains:
 
 Return only the domain name:''';
 
-      final response = await GroqService.getAIResponse(prompt);
+      final response = await AIService.getAIResponse(prompt);
       final domain = response.trim();
 
       const validDomains = [
@@ -244,7 +251,7 @@ Return only the domain name:''';
       final aiPrompt = _buildRecommendationPrompt(userProfile, availableTopics);
 
       final aiResponse =
-          await GroqService.getAIResponse(aiPrompt, maxTokens: 12000);
+          await AIService.getAIResponse(aiPrompt, maxTokens: 12000);
 
       final recommendations = await _parseAIRecommendations(
           aiResponse, availableTopics, performanceData, userPreferences);
@@ -625,6 +632,9 @@ Response format (JSON array):
       return daysSince >= 7;
     }).toList();
 
+    final interestedTopics =
+        List<String>.from(userPreferences?['interested_topics'] ?? const []);
+
     debugPrint(
         '[Fallback] Found ${spacedRepetitionCandidates.length} spaced repetition candidates');
 
@@ -728,7 +738,18 @@ Response format (JSON array):
 
     final attemptedTopicNames = performanceData.keys.toSet();
 
-    for (final topic in availableTopics) {
+    final filteredTopics = availableTopics.where((topic) {
+      if (interestedTopics.isEmpty) return true;
+      final topicName = (topic['name'] as String?)?.toLowerCase() ?? '';
+      final topicCategory = (topic['category'] as String?)?.toLowerCase() ?? '';
+      return interestedTopics.any((interest) {
+        final interestLower = interest.toLowerCase();
+        return topicName.contains(interestLower) ||
+            topicCategory.contains(interestLower);
+      });
+    }).toList();
+
+    for (final topic in filteredTopics) {
       if (mightLove.length >= 6) break;
 
       final topicName = topic['name'] as String;
@@ -748,7 +769,7 @@ Response format (JSON array):
 
         final reason = relatedToStrong
             ? 'Related to topics you\'re already strong in - build on your success'
-            : 'Expand your knowledge with this fresh topic';
+            : 'Based on the interests you chose during onboarding';
 
         mightLove.add(PersonalizedRecommendation(
           topicId: topic['id'] as String,
@@ -761,6 +782,29 @@ Response format (JSON array):
           topicDescription: (topic['description'] as String?)?.substring(
               0, min((topic['description'] as String?)?.length ?? 0, 100)),
         ));
+      }
+    }
+
+    if (mightLove.length < 6 &&
+        interestedTopics.isNotEmpty &&
+        filteredTopics.length != availableTopics.length) {
+      for (final topic in availableTopics) {
+        if (mightLove.length >= 6) break;
+        final topicName = topic['name'] as String;
+        if (!attemptedTopicNames.contains(topicName) &&
+            !mightLove.any((rec) => rec.topicName == topicName)) {
+          mightLove.add(PersonalizedRecommendation(
+            topicId: topic['id'] as String,
+            topicName: topicName,
+            category: 'might_love',
+            reason: 'Expand your knowledge with this fresh topic',
+            score: 0.6,
+            difficulty: topic['difficulty'] as String? ?? 'Medium',
+            estimatedTime: topic['estimated_time_minutes'] as int? ?? 15,
+            topicDescription: (topic['description'] as String?)?.substring(
+                0, min((topic['description'] as String?)?.length ?? 0, 100)),
+          ));
+        }
       }
     }
 

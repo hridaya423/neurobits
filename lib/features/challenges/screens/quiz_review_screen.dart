@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:neurobits/services/groq_service.dart';
+import 'package:neurobits/services/ai_service.dart';
 
 class QuizReviewScreen extends StatefulWidget {
   final List<Map<String, dynamic>> questions;
@@ -45,7 +45,7 @@ class _QuizReviewScreenState extends State<QuizReviewScreen> {
         return;
       }
       final explanation =
-          await GroqService.explainAnswer(questionText, solution);
+          await AIService.explainAnswer(questionText, solution);
       if (explanation.trim().isEmpty ||
           explanation.toLowerCase().contains('error')) {
         setState(() {
@@ -60,8 +60,8 @@ class _QuizReviewScreenState extends State<QuizReviewScreen> {
         });
       }
     } catch (e) {
-      final errMsg = e.toString().contains('GROQ_API_KEY')
-          ? 'Groq API key not set. Please check configuration.'
+      final errMsg = e.toString().contains('OPENROUTER_API_KEY')
+          ? 'AI API key not set. Please check configuration.'
           : 'Could not fetch explanation. (${e.toString()})';
       setState(() {
         _explanations[i] = errMsg;

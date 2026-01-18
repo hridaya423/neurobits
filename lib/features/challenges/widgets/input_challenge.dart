@@ -7,13 +7,16 @@ class InputChallenge extends StatefulWidget {
   final String solution;
   final Function(String) onSubmitted;
   final String? title;
+  final bool isDisabled;
   const InputChallenge({
     super.key,
     required this.question,
     required this.solution,
     required this.onSubmitted,
     this.title,
+    this.isDisabled = false,
   });
+
   @override
   State<InputChallenge> createState() => _InputChallengeState();
 }
@@ -135,28 +138,30 @@ class _InputChallengeState extends State<InputChallenge> {
                 style: Theme.of(context).textTheme.bodyLarge),
             const SizedBox(height: 16),
             _isMathQuestion()
-                ? MathInputField(
-                    controller: _controller,
-                    labelText: 'Your Answer',
-                    hintText: 'Enter your mathematical answer...',
-                    enabled: !_submitted,
-                    onSubmitted: _submit,
-                  )
-                : TextField(
-                    controller: _controller,
-                    enabled: !_submitted,
-                    decoration: const InputDecoration(
-                      labelText: 'Your Answer',
-                      border: OutlineInputBorder(),
-                    ),
-                    onSubmitted: (_) => _submit(),
-                  ),
-            const SizedBox(height: 16),
-            if (!_submitted)
-              ElevatedButton(
-                onPressed: _submit,
-                child: const Text('Submit'),
-              ),
+                 ? MathInputField(
+                     controller: _controller,
+                     labelText: 'Your Answer',
+                     hintText: 'Enter your mathematical answer...',
+                     enabled: !_submitted && !widget.isDisabled,
+                     onSubmitted: _submit,
+                   )
+                 : TextField(
+                     controller: _controller,
+                     enabled: !_submitted && !widget.isDisabled,
+                     decoration: const InputDecoration(
+                       labelText: 'Your Answer',
+                       border: OutlineInputBorder(),
+                     ),
+                     onSubmitted: (_) => _submit(),
+                   ),
+             const SizedBox(height: 16),
+             if (!_submitted)
+               ElevatedButton(
+                 onPressed: widget.isDisabled ? null : _submit,
+                 child: const Text('Submit'),
+               ),
+
+
           ],
         ),
       ),

@@ -38,14 +38,14 @@ jobs:
           flutter build apk --release
           --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }}
           --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
-          --dart-define=GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}
+          --dart-define=OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
 
       - name: Build App Bundle
         run: >
           flutter build appbundle --release
           --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }}
           --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
-          --dart-define=GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}
+          --dart-define=OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
 
       - name: Get version from tag
         id: get_version

@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -10,6 +11,8 @@ import '../widgets/coding_challenge.dart';
 import '../widgets/input_challenge.dart';
 import 'package:neurobits/features/challenges/screens/session_summary_screen.dart';
 import 'package:neurobits/core/learning_path_providers.dart';
+
+
 
 class AnalyticsBadge extends StatelessWidget {
   final IconData icon;
@@ -437,6 +440,7 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
   bool _completed = false;
   int _currentQuestionIndex = 0;
   bool _disposed = false;
+  bool _isSubmitting = false;
   List<dynamic> _selectedAnswers = [];
   Timer? _timer;
   late DateTime _startTime;
@@ -445,6 +449,7 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
   int _finalAnsweredCount = 0;
   double _finalAccuracy = 0.0;
   int _finalTimeTaken = 0;
+
   Future<void> _showBadgePopup(List<Map<String, dynamic>> newBadges) async {
     if (newBadges.isEmpty) return;
     await showDialog(
@@ -584,6 +589,7 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
   }
 
   void _nextQuestion(bool success, [dynamic answer]) async {
+    if (_disposed || _completed) return;
     if (_currentQuestionIndex < widget.questions.length) {
       _selectedAnswers[_currentQuestionIndex] = answer;
     }
@@ -598,22 +604,22 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
         }
       }
     } else {
-      if (mounted) {
-        _timer?.cancel();
-        final user = SupabaseService.client.auth.currentUser;
-        int correctCount = 0;
-        int answeredCount = 0;
-        for (int i = 0; i < widget.questions.length; i++) {
-          if (_selectedAnswers[i] != null) answeredCount++;
-          if (_selectedAnswers[i] != null &&
-              QuizReview.isAnswerCorrect(
-                  widget.questions[i], _selectedAnswers[i])) {
-            correctCount++;
-          }
+      if (_isSubmitting) return;
+      _isSubmitting = true;
+      _timer?.cancel();
+      final user = SupabaseService.client.auth.currentUser;
+      int correctCount = 0;
+      int answeredCount = 0;
+      for (int i = 0; i < widget.questions.length; i++) {
+        if (_selectedAnswers[i] != null) answeredCount++;
+        if (_selectedAnswers[i] != null &&
+            QuizReview.isAnswerCorrect(widget.questions[i], _selectedAnswers[i])) {
+          correctCount++;
         }
-        final safeAccuracy =
-            answeredCount > 0 ? (correctCount / answeredCount) : 0.0;
-        final timeTaken = DateTime.now().difference(_startTime).inSeconds;
+      }
+      final safeAccuracy = answeredCount > 0 ? (correctCount / answeredCount) : 0.0;
+      final timeTaken = DateTime.now().difference(_startTime).inSeconds;
+      if (mounted) {
         setState(() {
           _completed = true;
           _finalCorrectCount = correctCount;
@@ -621,102 +627,95 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
           _finalAccuracy = safeAccuracy;
           _finalTimeTaken = timeTaken;
         });
-        if (user != null) {
+      }
+      if (user != null) {
+        try {
+          await SupabaseService.saveQuizProgress(
+            widget.quizName ?? widget.topic,
+            widget.quizName ?? widget.topic,
+            widget.questions,
+            _finalCorrectCount >= (widget.questions.length / 2),
+            _finalTimeTaken,
+            _finalAccuracy,
+            correctCount: _finalCorrectCount,
+            totalCount: widget.questions.length,
+          );
           try {
-            await SupabaseService.saveQuizProgress(
-              widget.quizName ?? widget.topic,
-              widget.quizName ?? widget.topic,
-              widget.questions,
-              _finalCorrectCount >= (widget.questions.length / 2),
-              _finalTimeTaken,
-              _finalAccuracy,
-              correctCount: _finalCorrectCount,
-              totalCount: widget.questions.length,
-            );
-            try {
-              final userPath = ref.read(userPathProvider);
-              final bool advanced =
-                  await SupabaseService.checkAndAdvancePathStep(user.id);
-              if (mounted) {
-                if (advanced) {
-                  debugPrint("Quiz completion triggered path advancement!");
-                  ref.invalidate(userPathProvider);
-                  ref.invalidate(activeLearningPathProvider(user.id));
-                  ref.invalidate(userPathChallengesProvider);
-                } else {
-                  if (userPath != null) {
-                    
-                    
-                    double passThreshold = 0.75;
-                    if (userPath['metadata'] is Map<String, dynamic> &&
-                        (userPath['metadata']
-                                as Map<String, dynamic>)['threshold'] !=
-                            null) {
-                      passThreshold = ((userPath['metadata']
-                              as Map<String, dynamic>)['threshold'] as num)
-                          .toDouble();
-                    }
-                    if (passThreshold < 0.5) passThreshold = 0.5;
-                    
-                    showDialog(
-                      context: context,
-                      builder: (dialogCtx) {
-                        return AlertDialog(
-                          title: const Text('Topic Incomplete'),
-                          content: Text(
-                              'Your accuracy was ${(safeAccuracy * 100).toStringAsFixed(1)}%, which is below the required ${(passThreshold * 100).round()}%. Would you like to retry?'),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.of(dialogCtx).pop(),
-                              child: const Text('Cancel'),
-                            ),
-                            TextButton(
-                              onPressed: () {
-                                Navigator.of(dialogCtx).pop();
-                                
-                                setState(() {
-                                  _completed = false;
-                                  _currentQuestionIndex = 0;
-                                  _selectedAnswers = List<dynamic>.filled(
-                                      widget.questions.length, null);
-                                  _startTime = DateTime.now();
-                                  if (widget.timedMode) {
-                                    _secondsRemaining = _perQuestionTime!;
-                                    _startTimer();
-                                  }
-                                });
-                              },
-                              child: const Text('Retry'),
-                            ),
-                          ],
-                        );
-                      },
-                    );
+            final userPath = ref.read(userPathProvider);
+            final bool advanced =
+                await SupabaseService.checkAndAdvancePathStep(user.id);
+            if (mounted) {
+              if (advanced) {
+                debugPrint("Quiz completion triggered path advancement!");
+                ref.invalidate(userPathProvider);
+                ref.invalidate(activeLearningPathProvider(user.id));
+                ref.invalidate(userPathChallengesProvider);
+              } else {
+                if (userPath != null) {
+                  double passThreshold = 0.75;
+                  if (userPath['metadata'] is Map<String, dynamic> &&
+                      (userPath['metadata'] as Map<String, dynamic>)['threshold'] != null) {
+                    passThreshold = ((userPath['metadata'] as Map<String, dynamic>)['threshold'] as num)
+                        .toDouble();
                   }
+                  if (passThreshold < 0.5) passThreshold = 0.5;
+                  showDialog(
+                    context: context,
+                    builder: (dialogCtx) {
+                      return AlertDialog(
+                        title: const Text('Topic Incomplete'),
+                        content: Text(
+                            'Your accuracy was ${(safeAccuracy * 100).toStringAsFixed(1)}%, which is below the required ${(passThreshold * 100).round()}%. Would you like to retry?'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(dialogCtx).pop(),
+                            child: const Text('Cancel'),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.of(dialogCtx).pop();
+                              if (!mounted) return;
+                              setState(() {
+                                _completed = false;
+                                _currentQuestionIndex = 0;
+                                _selectedAnswers =
+                                    List<dynamic>.filled(widget.questions.length, null);
+                                _startTime = DateTime.now();
+                                if (widget.timedMode) {
+                                  _secondsRemaining = _perQuestionTime!;
+                                  _startTimer();
+                                }
+                              });
+                            },
+                            child: const Text('Retry'),
+                          ),
+                        ],
+                      );
+                    },
+                  );
                 }
               }
-            } catch (e) {
-              debugPrint("Error checking for path advancement after quiz: $e");
             }
-          } catch (error) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                    content: Text('Oops! Failed to save progress: $error')),
-              );
-            }
+          } catch (e) {
+            debugPrint("Error checking for path advancement after quiz: $e");
           }
-        } else {
-          debugPrint(
-              "User not logged in, skipping progress save and path check.");
+        } catch (error) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Oops! Failed to save progress: $error')),
+            );
+          }
         }
-        if (_selectedAnswers.isEmpty || widget.questions.isEmpty) {
-          debugPrint(
-              'WARNING: selectedAnswers or questions are empty at quiz end!');
-        }
+      } else {
+        debugPrint("User not logged in, skipping progress save and path check.");
       }
+      if (_selectedAnswers.isEmpty || widget.questions.isEmpty) {
+        debugPrint('WARNING: selectedAnswers or questions are empty at quiz end!');
+      }
+      _isSubmitting = false;
     }
   }
+
 
   Widget _buildChallenge() {
     final currentQuestion = widget.questions[_currentQuestionIndex];
@@ -724,78 +723,96 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
         (currentQuestion['options'] != null
             ? 'mcq'
             : (currentQuestion['solution'] != null ? 'code' : 'input'));
-    return Column(
+    return Stack(
       children: [
-        LinearProgressIndicator(
-          value: (_currentQuestionIndex + 1) / widget.questions.length,
-          backgroundColor: Colors.grey[300],
-          valueColor: AlwaysStoppedAnimation<Color>(
-              Theme.of(context).colorScheme.primary),
+        Column(
+          children: [
+            LinearProgressIndicator(
+              value: (_currentQuestionIndex + 1) / widget.questions.length,
+              backgroundColor: Colors.grey[300],
+              valueColor: AlwaysStoppedAnimation<Color>(
+                  Theme.of(context).colorScheme.primary),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Text(
+                'Question ${_currentQuestionIndex + 1}/${widget.questions.length}',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            Expanded(
+              child: Builder(
+                builder: (context) {
+                  switch (type) {
+                    case 'mcq':
+                      return QuizChallenge(
+                        key: ValueKey(_currentQuestionIndex),
+                        question: currentQuestion['question'],
+                        options: List<String>.from(currentQuestion['options']),
+                        isDisabled: _isSubmitting,
+                        onSubmitted: (answer) {
+                          if (_isSubmitting) return;
+                          _selectedAnswers[_currentQuestionIndex] = answer;
+                          _nextQuestion(
+                            QuizReview.isAnswerCorrect(currentQuestion, answer),
+                            answer,
+                          );
+                        },
+                      );
+                    case 'input':
+                    case 'fill_blank':
+                      return InputChallenge(
+                        key: ValueKey(_currentQuestionIndex),
+                        question: currentQuestion['question'],
+                        solution: currentQuestion['solution'] ??
+                            currentQuestion['answer'] ??
+                            '',
+                        isDisabled: _isSubmitting,
+                        onSubmitted: (answer) {
+                          if (_isSubmitting) return;
+                          _selectedAnswers[_currentQuestionIndex] = answer;
+                          _nextQuestion(
+                            QuizReview.isAnswerCorrect(currentQuestion, answer),
+                            answer,
+                          );
+                        },
+                      );
+                    case 'code':
+                      return CodingChallenge(
+                        key: ValueKey(_currentQuestionIndex),
+                        question: currentQuestion['question'],
+                        solution: currentQuestion['solution'] ?? '',
+                        starterCode: currentQuestion['starter_code'] ?? '',
+                        isDisabled: _isSubmitting,
+                        onSubmitted: (answer) {
+                          if (_isSubmitting) return;
+                          _selectedAnswers[_currentQuestionIndex] = answer;
+                          _nextQuestion(
+                            QuizReview.isAnswerCorrect(currentQuestion, answer),
+                            answer,
+                          );
+                        },
+                      );
+                    default:
+                      debugPrint('Warning: Unknown question type: $type');
+                      return const Center(child: Text('Unknown question type'));
+                  }
+                },
+              ),
+            ),
+          ],
         ),
-        Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: Text(
-            'Question ${_currentQuestionIndex + 1}/${widget.questions.length}',
-            style: Theme.of(context).textTheme.titleMedium,
+        if (_isSubmitting && !_completed)
+          Positioned.fill(
+            child: ColoredBox(
+              color: Colors.black.withOpacity(0.1),
+              child: const Center(child: CircularProgressIndicator()),
+            ),
           ),
-        ),
-        Expanded(
-          child: Builder(
-            builder: (context) {
-              switch (type) {
-                case 'mcq':
-                  return QuizChallenge(
-                    key: ValueKey(_currentQuestionIndex),
-                    question: currentQuestion['question'],
-                    options: List<String>.from(currentQuestion['options']),
-                    onSubmitted: (answer) {
-                      _selectedAnswers[_currentQuestionIndex] = answer;
-                      _nextQuestion(
-                        QuizReview.isAnswerCorrect(currentQuestion, answer),
-                        answer,
-                      );
-                    },
-                  );
-                case 'input':
-                case 'fill_blank':
-                  return InputChallenge(
-                    key: ValueKey(_currentQuestionIndex),
-                    question: currentQuestion['question'],
-                    solution: currentQuestion['solution'] ??
-                        currentQuestion['answer'] ??
-                        '',
-                    onSubmitted: (answer) {
-                      _selectedAnswers[_currentQuestionIndex] = answer;
-                      _nextQuestion(
-                        QuizReview.isAnswerCorrect(currentQuestion, answer),
-                        answer,
-                      );
-                    },
-                  );
-                case 'code':
-                  return CodingChallenge(
-                    key: ValueKey(_currentQuestionIndex),
-                    question: currentQuestion['question'],
-                    solution: currentQuestion['solution'] ?? '',
-                    starterCode: currentQuestion['starter_code'] ?? '',
-                    onSubmitted: (answer) {
-                      _selectedAnswers[_currentQuestionIndex] = answer;
-                      _nextQuestion(
-                        QuizReview.isAnswerCorrect(currentQuestion, answer),
-                        answer,
-                      );
-                    },
-                  );
-                default:
-                  debugPrint('Warning: Unknown question type: $type');
-                  return const Center(child: Text('Unknown question type'));
-              }
-            },
-          ),
-        ),
       ],
     );
   }
+
 
   Widget _buildResult() {
     return Builder(

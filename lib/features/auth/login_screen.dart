@@ -39,9 +39,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     setState(() => _isLoading = true);
 
     try {
+      // Normalize email to lowercase before login
       await SupabaseService.signIn(
-        _emailController.text.trim(),
-        _passwordController.text.trim(),
+        _emailController.text.trim().toLowerCase(),
+        _passwordController.text,
       );
 
       if (mounted) {
@@ -125,9 +126,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   if (value == null || value.isEmpty) {
                     return 'Password is required';
                   }
-                  if (value.length < 6) {
-                    return 'Password must be at least 6 characters';
-                  }
+                if (value.length < 8) {
+                  return 'Password must be at least 8 characters';
+                }
                   return null;
                 },
                 textInputAction: TextInputAction.done,
@@ -148,6 +149,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     : const Text('Login', style: TextStyle(fontSize: 16)),
               ),
               const SizedBox(height: 16),
+              TextButton(
+                onPressed: () => context.push('/auth/forgot-password'),
+                child: const Text('Forgot password?'),
+              ),
               TextButton(
                 onPressed: () => context.push('/auth/signup'),
                 child: const Text('New user? Create account'),

@@ -13,18 +13,9 @@ final learningPathsProvider =
       .select('id, name, description')
       .eq('is_active', true);
   if (currentUser != null) {
-    final otherCustomRows = await SupabaseService.client
-        .from('user_learning_paths')
-        .select('path_id')
-        .eq('is_custom', true)
-        .neq('user_id', currentUser['id']);
-    final blockedIds = (otherCustomRows as List)
-        .map((e) => e['path_id']?.toString())
-        .whereType<String>()
-        .toList();
-    if (blockedIds.isNotEmpty) {
-      query.not('id', 'in', blockedIds);
-    }
+    query.or('created_by.is.null,created_by.eq.${currentUser['id']}');
+  } else {
+    query.is_('created_by', null);
   }
   final result = await query.order('created_at');
   return List<Map<String, dynamic>>.from(result);
@@ -343,7 +334,7 @@ class LearningPathOnboardingScreen extends ConsumerWidget {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surfaceVariant,
+                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Icon(
@@ -420,7 +411,7 @@ class LearningPathOnboardingScreen extends ConsumerWidget {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceVariant,
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
@@ -502,7 +493,7 @@ class LearningPathOnboardingScreen extends ConsumerWidget {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceVariant,
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(

@@ -31,7 +31,7 @@ export default function Home() {
 
   return (
     <div className="relative min-h-screen">
-      <Banner message="Yer a wizard, the magic update is now live! Go try it!" storageKey="magic-update-banner" />
+     
       <div style={{
         width: '100%',
         height: '100vh',

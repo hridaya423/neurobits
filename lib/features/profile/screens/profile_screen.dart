@@ -13,13 +13,15 @@ class ProfileScreen extends ConsumerStatefulWidget {
   ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
 }
 
+void refreshProfileStats(WidgetRef ref) {
+  ref.invalidate(userStatsProvider);
+  ref.invalidate(userProvider);
+}
+
 class _ProfileScreenState extends ConsumerState<ProfileScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  void _onXpOrPointsChanged(WidgetRef ref) {
-    ref.invalidate(userStatsProvider);
-    ref.invalidate(userProvider);
-  }
+
 
   @override
   void initState() {
@@ -339,18 +341,21 @@ class StreakGoalSection extends ConsumerWidget {
                   .toList(),
               onChanged: (value) async {
                 if (value != null) {
-                  await SupabaseService.client
-                      .from('users')
-                      .update({'streak_goal': value}).eq('id', user['id']);
-                  ref.refresh(userProvider);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                        content: Text('Streak goal updated to $value days!')),
-                  );
-                  _ProfileScreenState()._onXpOrPointsChanged(ref);
-                }
-              },
-            ),
+                   await SupabaseService.client
+                       .from('users')
+                       .update({'streak_goal': value}).eq('id', user['id']);
+                   ref.refresh(userProvider);
+                   ScaffoldMessenger.of(context).showSnackBar(
+                     SnackBar(
+                         content: Text('Streak goal updated to $value days!')),
+                   );
+                    // Refresh user stats and data
+                    refreshProfileStats(ref);
+
+                 }
+               },
+             ),
+
           ),
         );
       },
@@ -394,18 +399,21 @@ class AdaptiveDifficultySection extends ConsumerWidget {
             subtitle: Text('Enable or adjust adaptive quiz difficulty.'),
             value: adaptiveEnabled,
             onChanged: (value) async {
-              await SupabaseService.client
-                  .from('users')
-                  .update({'adaptive_difficulty': value}).eq('id', user['id']);
-              ref.refresh(userProvider);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                    content: Text(
-                        'Adaptive difficulty ${value ? 'enabled' : 'disabled'}!')),
-              );
-              _ProfileScreenState()._onXpOrPointsChanged(ref);
-            },
-          ),
+               await SupabaseService.client
+                   .from('users')
+                   .update({'adaptive_difficulty': value}).eq('id', user['id']);
+               ref.refresh(userProvider);
+               ScaffoldMessenger.of(context).showSnackBar(
+                 SnackBar(
+                     content: Text(
+                         'Adaptive difficulty ${value ? 'enabled' : 'disabled'}!')),
+               );
+               refreshProfileStats(ref);
+             },
+           ),
+
+
+
         );
       },
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -451,33 +459,39 @@ class NotificationSettingsSection extends ConsumerWidget {
                 subtitle: Text('Enable daily quiz reminders.'),
                 value: remindersEnabled,
                 onChanged: (value) async {
-                  await SupabaseService.client.from('users').update(
-                      {'reminders_enabled': value}).eq('id', user['id']);
-                  ref.refresh(userProvider);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                        content: Text(
-                            'Reminders ${value ? 'enabled' : 'disabled'}!')),
-                  );
-                  _ProfileScreenState()._onXpOrPointsChanged(ref);
-                },
-              ),
+                   await SupabaseService.client.from('users').update(
+                       {'streak_notifications': value}).eq('id', user['id']);
+                   ref.refresh(userProvider);
+                   ScaffoldMessenger.of(context).showSnackBar(
+                     SnackBar(
+                         content: Text(
+                             'Streak notifications ${value ? 'enabled' : 'disabled'}!')),
+                   );
+                   refreshProfileStats(ref);
+                 },
+               ),
+
+
+
               SwitchListTile(
                 title: Text('Streak Notifications'),
                 subtitle: Text('Enable notifications for streak milestones.'),
                 value: streaksEnabled,
                 onChanged: (value) async {
-                  await SupabaseService.client.from('users').update(
-                      {'streak_notifications': value}).eq('id', user['id']);
-                  ref.refresh(userProvider);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                        content: Text(
-                            'Streak notifications ${value ? 'enabled' : 'disabled'}!')),
-                  );
-                  _ProfileScreenState()._onXpOrPointsChanged(ref);
-                },
-              ),
+                   await SupabaseService.client.from('users').update(
+                       {'streak_notifications': value}).eq('id', user['id']);
+                   ref.refresh(userProvider);
+                   ScaffoldMessenger.of(context).showSnackBar(
+                     SnackBar(
+                         content: Text(
+                             'Streak notifications ${value ? 'enabled' : 'disabled'}!')),
+                   );
+                    // Refresh user stats and data
+                    refreshProfileStats(ref);
+
+                 },
+               ),
+
             ],
           ),
         );

@@ -15,19 +15,70 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
+
+  void _showEmailVerificationDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.mark_email_read, color: Colors.green),
+            SizedBox(width: 12),
+            Text('Verify Your Email'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'We sent a verification email to:',
+              style: TextStyle(color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _emailController.text.trim().toLowerCase(),
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Please check your inbox and click the verification link to activate your account.',
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              context.go('/auth/login');
+            },
+            child: const Text('Go to Login'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
   Future<void> _signUp() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
     try {
+      // Normalize email to lowercase before signup
       await SupabaseService.signUp(
-        _emailController.text.trim(),
-        _passwordController.text.trim(),
+        _emailController.text.trim().toLowerCase(),
+        _passwordController.text,
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Account created successfully!')),
-        );
-        context.go('/');
+        // Show email verification message instead of going to dashboard
+        _showEmailVerificationDialog();
       }
     } catch (e) {
       debugPrint('❌ Signup failed: $e');
@@ -84,7 +135,17 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                   border: OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.emailAddress,
-                validator: (v) => v!.contains('@') ? null : 'Invalid email',
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Email is required';
+                  }
+                  // Normalize email to lowercase for comparison
+                  final email = value.trim().toLowerCase();
+                  if (!RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$').hasMatch(email)) {
+                    return 'Please enter a valid email address';
+                  }
+                  return null;
+                },
                 textInputAction: TextInputAction.next,
               ),
               const SizedBox(height: 16),
@@ -96,7 +157,27 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                   border: OutlineInputBorder(),
                 ),
                 obscureText: true,
-                validator: (v) => v!.length >= 6 ? null : 'Min 6 characters',
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Password is required';
+                  }
+                  if (value.length < 8) {
+                    return 'Password must be at least 8 characters';
+                  }
+                  if (!RegExp(r'[A-Z]').hasMatch(value)) {
+                    return 'Must contain an uppercase letter';
+                  }
+                  if (!RegExp(r'[a-z]').hasMatch(value)) {
+                    return 'Must contain a lowercase letter';
+                  }
+                  if (!RegExp(r'[0-9]').hasMatch(value)) {
+                    return 'Must contain a number';
+                  }
+                  if (value.length > 128) {
+                    return 'Password is too long';
+                  }
+                  return null;
+                },
                 textInputAction: TextInputAction.done,
                 onFieldSubmitted: (_) => _signUp(),
               ),

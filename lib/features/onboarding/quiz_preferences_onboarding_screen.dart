@@ -125,7 +125,7 @@ class _QuizPreferencesOnboardingScreenState
             DropdownButtonFormField<int>(
               decoration: const InputDecoration(
                   labelText: 'Default Number of Questions'),
-              value: _defaultNumQuestions,
+              initialValue: _defaultNumQuestions,
               items: questionCountOptions
                   .map((cnt) =>
                       DropdownMenuItem(value: cnt, child: Text('$cnt')))
@@ -136,7 +136,7 @@ class _QuizPreferencesOnboardingScreenState
             DropdownButtonFormField<String>(
               decoration:
                   const InputDecoration(labelText: 'Default Difficulty'),
-              value: _defaultDifficulty,
+              initialValue: _defaultDifficulty,
               items: difficultyOptions
                   .map((d) => DropdownMenuItem(value: d, child: Text(d)))
                   .toList(),
@@ -146,7 +146,7 @@ class _QuizPreferencesOnboardingScreenState
             DropdownButtonFormField<int>(
               decoration: const InputDecoration(
                   labelText: 'Time per Question (seconds)'),
-              value: _defaultTimePerQuestionSec,
+              initialValue: _defaultTimePerQuestionSec,
               items: timePerQuestionOptions
                   .map((t) => DropdownMenuItem(value: t, child: Text('$t sec')))
                   .toList(),

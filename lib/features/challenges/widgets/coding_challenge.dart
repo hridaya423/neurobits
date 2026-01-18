@@ -6,13 +6,16 @@ class CodingChallenge extends StatefulWidget {
   final String solution;
   final String? starterCode;
   final Function(String) onSubmitted;
+  final bool isDisabled;
   const CodingChallenge({
     required this.question,
     required this.solution,
     this.starterCode,
     required this.onSubmitted,
+    this.isDisabled = false,
     super.key,
   });
+
   @override
   State<CodingChallenge> createState() => _CodingChallengeState();
 }
@@ -40,19 +43,22 @@ class _CodingChallengeState extends State<CodingChallenge> {
           LaTeXText(widget.question,
               style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 20),
-          TextField(
-            controller: _controller,
-            maxLines: 5,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              hintText: 'Write your code here...',
-            ),
-          ),
-          const SizedBox(height: 20),
-          ElevatedButton(
-            onPressed: () => widget.onSubmitted(_controller.text.trim()),
-            child: const Text('Submit Code'),
-          ),
+           TextField(
+             controller: _controller,
+             maxLines: 5,
+             enabled: !widget.isDisabled,
+             decoration: const InputDecoration(
+               border: OutlineInputBorder(),
+               hintText: 'Write your code here...',
+             ),
+           ),
+           const SizedBox(height: 20),
+           ElevatedButton(
+             onPressed:
+                 widget.isDisabled ? null : () => widget.onSubmitted(_controller.text.trim()),
+             child: const Text('Submit Code'),
+           ),
+
         ],
       ),
     );

@@ -7,7 +7,6 @@ import 'learning_path_onboarding_screen.dart';
 import 'quiz_preferences_onboarding_screen.dart';
 import 'personalization_onboarding_screen.dart';
 
-final streakGoalProvider = StateProvider<int?>((ref) => null);
 final onboardingCompleteProvider = StateProvider<bool>((ref) => false);
 Future<void> syncOnboardingStatusFromBackend(WidgetRef ref) async {
   final user = Supabase.instance.client.auth.currentUser;
@@ -18,12 +17,9 @@ Future<void> syncOnboardingStatusFromBackend(WidgetRef ref) async {
         .select('streak_goal, onboarding_complete, adaptive_difficulty')
         .eq('id', user.id)
         .maybeSingle();
-    final streakGoal = userData?['streak_goal'] as int?;
     final onboardingComplete = userData?['onboarding_complete'] == true;
     final adaptiveDifficulty = userData?['adaptive_difficulty'] == true;
-    if (ref.read(streakGoalProvider) != streakGoal) {
-      ref.read(streakGoalProvider.notifier).state = streakGoal;
-    }
+    ref.read(adaptiveDifficultyProvider.notifier).state = adaptiveDifficulty;
     if (ref.read(onboardingCompleteProvider) != onboardingComplete) {
       ref.read(onboardingCompleteProvider.notifier).state = onboardingComplete;
     }
@@ -61,18 +57,14 @@ class _OnboardingGateState extends ConsumerState<OnboardingGate> {
           .eq('id', user.id)
           .maybeSingle();
       if (!mounted) return;
-      final streakGoal = userData?['streak_goal'] as int?;
       final onboardingComplete = userData?['onboarding_complete'] == true;
       final adaptiveDifficulty = userData?['adaptive_difficulty'] == true;
-      if (ref.read(streakGoalProvider) != streakGoal) {
-        ref.read(streakGoalProvider.notifier).state = streakGoal;
-      }
+      ref.read(adaptiveDifficultyProvider.notifier).state = adaptiveDifficulty;
       if (ref.read(onboardingCompleteProvider) != onboardingComplete) {
         ref.read(onboardingCompleteProvider.notifier).state =
             onboardingComplete;
       }
-      final bool shouldShowOnboarding =
-          (!onboardingComplete && streakGoal == null);
+      final bool shouldShowOnboarding = !onboardingComplete;
       debugPrint('[OnboardingGate] shouldShowOnboarding=$shouldShowOnboarding');
       if (shouldShowOnboarding && mounted) {
         await showDialog(
@@ -93,9 +85,9 @@ class _OnboardingGateState extends ConsumerState<OnboardingGate> {
                 await SupabaseService.client.from('users').update({
                   'streak_goal': goal,
                   'adaptive_difficulty': adaptiveDifficulty,
+                  'onboarding_complete': true,
                 }).eq('id', currentUserId);
                 if (!mounted) return;
-                ref.read(streakGoalProvider.notifier).state = goal;
                 if (Navigator.of(dialogContext).canPop()) {
                   Navigator.of(dialogContext).pop();
                 }

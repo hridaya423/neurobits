@@ -9,6 +9,8 @@ import 'package:neurobits/services/content_moderation_service.dart';
 
 class SupabaseService {
   static late final SupabaseClient client;
+  static const String _authRedirectUrl = 'neurobits://auth-callback';
+  static const String _authCallbackHost = 'auth-callback';
   static final RegExp _alphanumericWithSpaces = RegExp(r'^[a-zA-Z0-9\s-_]+$');
   static final RegExp _emailPattern =
       RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
@@ -42,8 +44,10 @@ class SupabaseService {
     const supabaseUrl = String.fromEnvironment('SUPABASE_URL', defaultValue: '');
     const supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: '');
 
-    String url = supabaseUrl.isNotEmpty ? supabaseUrl : (dotenv.env['SUPABASE_URL'] ?? '');
-    String anonKey = supabaseAnonKey.isNotEmpty ? supabaseAnonKey : (dotenv.env['SUPABASE_ANON_KEY'] ?? '');
+    final env = dotenv.isInitialized ? dotenv.env : const <String, String>{};
+    String url = supabaseUrl.isNotEmpty ? supabaseUrl : (env['SUPABASE_URL'] ?? '');
+    String anonKey =
+        supabaseAnonKey.isNotEmpty ? supabaseAnonKey : (env['SUPABASE_ANON_KEY'] ?? '');
 
     if (url.isEmpty || anonKey.isEmpty) {
       throw Exception('SUPABASE_URL and SUPABASE_ANON_KEY must be configured');
@@ -53,6 +57,7 @@ class SupabaseService {
       url: url,
       anonKey: anonKey,
       authFlowType: AuthFlowType.pkce,
+      authCallbackUrlHostname: _authCallbackHost,
     );
     client = Supabase.instance.client;
   }
@@ -118,11 +123,45 @@ class SupabaseService {
   }
 
   static Future<void> signOut() async {
+    await client.auth.signOut();
+  }
+
+  /// Send password reset email to user
+  static Future<void> resetPassword(String email) async {
+    if (!isValidInput(email, isEmail: true)) {
+      throw Exception('Invalid email format');
+    }
     try {
-      await client.auth.signOut();
+      await client.auth.resetPasswordForEmail(
+        email,
+        redirectTo: _authRedirectUrl,
+      );
     } catch (e) {
       rethrow;
     }
+  }
+
+  /// Update password (used after reset link is clicked)
+  static Future<void> updatePassword(String newPassword) async {
+    try {
+      await client.auth.updateUser(UserAttributes(password: newPassword));
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  static Future<void> handleAuthRedirect(Uri uri) async {
+    try {
+      await client.auth.getSessionFromUrl(uri);
+    } catch (e) {
+      debugPrint('[Supabase] Failed to handle auth redirect: $e');
+      rethrow;
+    }
+  }
+
+  static bool isAuthRedirect(Uri uri) {
+    return uri.host == _authCallbackHost &&
+        uri.queryParameters.containsKey('code');
   }
 
   static int xpNeededForLevel(int level) {
@@ -372,56 +411,69 @@ class SupabaseService {
     }
 
     final safeQuestions = questions.map(safeQ).toList();
-    if (existing == null) {
-      final challengeData = {
-        'id': dbQuizId,
-        'title': quizName,
-        'quiz_name': quizName,
-        'type': 'quiz',
-        'created_at': DateTime.now().toIso8601String(),
-        'question':
-            safeQuestions.isNotEmpty ? safeQuestions[0]['question'] : null,
-        'solution':
-            safeQuestions.isNotEmpty ? safeQuestions[0]['solution'] : null,
-        'options': safeQuestions.isNotEmpty
-            ? jsonEncode(safeQuestions[0]['options'])
-            : null,
-        'questions': jsonEncode(safeQuestions),
-        'question_count': safeQuestions.length,
-      };
-      await client.from('challenges').insert(challengeData);
-    } else {
-      await client.from('challenges').update({
-        'questions': jsonEncode(safeQuestions),
-        'question_count': safeQuestions.length,
-      }).eq('id', dbQuizId);
-    }
-    await client.from('user_progress').upsert({
-      'user_id': user.id,
-      'challenge_id': dbQuizId,
-      'completed': success,
-      'attempts': 1,
-      'time_taken_seconds': timeTakenSeconds,
-      'accuracy': accuracy,
-      'original_id': dbQuizId,
-    });
-    if (topicId != null) {
-      await updateUserTopicStats(
-        userId: user.id,
-        topicId: topicId,
-        correct: correctCount,
-        total: totalCount,
-      );
-    } else {
-      debugPrint(
-          "Skipping user topic stats update because no matching topic ID was found for '$quizName'.");
-    }
-    if (success) {
-      await updateStreak(userId: user.id, activityDate: DateTime.now());
-      await _checkAndAwardBadges(user.id,
-          accuracy: accuracy, timeTakenSeconds: timeTakenSeconds);
+    // Supabase Dart SDK lacks full transaction support across multiple statements; best-effort sequential writes with minimal window
+    try {
+      if (existing == null) {
+        final challengeData = {
+          'id': dbQuizId,
+          'title': quizName,
+          'quiz_name': quizName,
+          'type': 'quiz',
+          'created_at': DateTime.now().toIso8601String(),
+          'question':
+              safeQuestions.isNotEmpty ? safeQuestions[0]['question'] : null,
+          'solution':
+              safeQuestions.isNotEmpty ? safeQuestions[0]['solution'] : null,
+          'options': safeQuestions.isNotEmpty
+              ? jsonEncode(safeQuestions[0]['options'])
+              : null,
+          'questions': jsonEncode(safeQuestions),
+          'question_count': safeQuestions.length,
+        };
+        await client.from('challenges').insert(challengeData);
+      } else {
+        await client
+            .from('challenges')
+            .update({
+              'questions': jsonEncode(safeQuestions),
+              'question_count': safeQuestions.length,
+            })
+            .eq('id', dbQuizId);
+      }
+
+      await client.from('user_progress').upsert({
+        'user_id': user.id,
+        'challenge_id': dbQuizId,
+        'completed': success,
+        'attempts': 1,
+        'time_taken_seconds': timeTakenSeconds,
+        'accuracy': accuracy,
+        'original_id': dbQuizId,
+      });
+
+      if (topicId != null) {
+        await updateUserTopicStats(
+          userId: user.id,
+          topicId: topicId,
+          correct: correctCount,
+          total: totalCount,
+        );
+      } else {
+        debugPrint(
+            "Skipping user topic stats update because no matching topic ID was found for '$quizName'.");
+      }
+
+      if (success) {
+        await updateStreak(userId: user.id, activityDate: DateTime.now());
+        await _checkAndAwardBadges(user.id,
+            accuracy: accuracy, timeTakenSeconds: timeTakenSeconds);
+      }
+    } catch (e) {
+      debugPrint('Error saving quiz progress: $e');
+      rethrow;
     }
   }
+
 
   static Future<void> updateStreak(
       {required String userId, required DateTime activityDate}) async {

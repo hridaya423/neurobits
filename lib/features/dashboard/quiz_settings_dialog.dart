@@ -18,7 +18,7 @@ class _QuizSettingsDialogState extends State<QuizSettingsDialog> {
         mainAxisSize: MainAxisSize.min,
         children: [
           DropdownButtonFormField<int>(
-            value: _numQuestions,
+            initialValue: _numQuestions,
             decoration: const InputDecoration(labelText: 'Number of Questions'),
             items: _questionOptions
                 .map((val) => DropdownMenuItem(value: val, child: Text('$val')))
@@ -29,7 +29,7 @@ class _QuizSettingsDialogState extends State<QuizSettingsDialog> {
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
-            value: _difficulty,
+            initialValue: _difficulty,
             decoration: const InputDecoration(labelText: 'Difficulty'),
             items: _difficultyOptions
                 .map((d) => DropdownMenuItem(value: d, child: Text(d)))

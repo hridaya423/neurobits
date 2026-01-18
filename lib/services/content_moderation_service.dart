@@ -1,8 +1,9 @@
 import 'dart:convert';
-import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'dart:async';
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:neurobits/services/ai_service.dart';
 
 class ModerationResult {
   final bool isAppropriate;
@@ -17,8 +18,7 @@ class ModerationResult {
 }
 
 class ContentModerationService {
-  static bool _groqApiAvailable = false;
-  static String? _groqApiKey;
+  static bool _hackclubApiAvailable = false;
 
   static final Map<String, _RateLimit> _userRateLimits = {};
   static const int _maxRequestsPerMinute = 10;
@@ -28,12 +28,10 @@ class ContentModerationService {
   static const Duration _notificationThrottle = Duration(minutes: 5);
 
   static Future<void> init() async {
-    const groqKey = String.fromEnvironment('GROQ_API_KEY', defaultValue: '');
-    _groqApiKey = groqKey.isNotEmpty ? groqKey : dotenv.env['GROQ_API_KEY'];
-    _groqApiAvailable = _groqApiKey != null && _groqApiKey!.isNotEmpty;
-    if (!_groqApiAvailable) {
+    _hackclubApiAvailable = AIService.isConfigured();
+    if (!_hackclubApiAvailable) {
       debugPrint(
-          'Warning: GROQ_API_KEY not found. Content moderation will be limited.');
+          'Warning: OPENROUTER_API_KEY not found. Content moderation will be limited.');
     }
   }
 
@@ -66,6 +64,23 @@ class ContentModerationService {
     return result.isAppropriate;
   }
 
+  // Basic blocklist for fallback moderation when API is unavailable
+  static final List<String> _blockedPatterns = [
+    r'\b(kill|murder|suicide|harm)\b',
+    r'\b(porn|xxx|nsfw)\b',
+    r'\b(hack|exploit|injection)\b',
+  ];
+
+  static bool _basicContentCheck(String content) {
+    final lowerContent = content.toLowerCase();
+    for (final pattern in _blockedPatterns) {
+      if (RegExp(pattern, caseSensitive: false).hasMatch(lowerContent)) {
+        return false; // Content is inappropriate
+      }
+    }
+    return true; // Content passes basic check
+  }
+
   static Future<ModerationResult> moderateContent(String content,
       {String? userId}) async {
     if (content.isEmpty) {
@@ -81,42 +96,35 @@ class ContentModerationService {
       }
     }
 
-    if (_groqApiAvailable) {
+    if (_hackclubApiAvailable) {
       try {
-        return await _checkWithLlamaGuard(content);
+        return await _checkWithHackclubGuard(content);
       } catch (e) {
-        debugPrint('LlamaGuard moderation error: $e');
+        debugPrint('Hackclub moderation error: $e');
+        final passesBasicCheck = _basicContentCheck(content);
         return ModerationResult(
-          isAppropriate: true,
-          message: 'Moderation service error: $e',
+          isAppropriate: passesBasicCheck,
+          message: passesBasicCheck
+              ? 'Moderation service unavailable, basic check passed'
+              : 'Content blocked by safety filter',
           isApiError: true,
         );
       }
     }
 
     debugPrint(
-        'Warning: Content moderation is inactive. GROQ_API_KEY is required.');
-    return ModerationResult(isAppropriate: true);
+        'Warning: Content moderation API unavailable. Using basic content filter.');
+    final passesBasicCheck = _basicContentCheck(content);
+    return ModerationResult(
+      isAppropriate: passesBasicCheck,
+      message: passesBasicCheck ? null : 'Content blocked by safety filter',
+    );
   }
 
-  static Future<ModerationResult> _checkWithLlamaGuard(String content) async {
+  static Future<ModerationResult> _checkWithHackclubGuard(
+      String content) async {
     try {
-      final response = await http.post(
-        Uri.parse('https://api.groq.com/openai/v1/chat/completions'),
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-          'Authorization': 'Bearer $_groqApiKey',
-        },
-        body: jsonEncode({
-          'model': 'meta-llama/Llama-Guard-4-12B',
-          'messages': [
-            {
-              'role': 'user',
-              'content': content,
-            }
-          ],
-        }),
-      );
+      final response = await AIService.postModerationRequest(content);
 
       if (response.statusCode == 200) {
         final data = jsonDecode(utf8.decode(response.bodyBytes));
@@ -131,22 +139,15 @@ class ContentModerationService {
         );
       } else {
         String errorMessage = 'API error: ${response.statusCode}';
-        bool isApiKeyIssue = false;
 
         try {
           final errorBody = jsonDecode(response.body);
           if (errorBody['error'] != null) {
             errorMessage = errorBody['error']['message'] ?? errorMessage;
-
-            if (errorBody['error']['code'] == 'invalid_api_key' ||
-                errorMessage.contains('API Key') ||
-                response.statusCode == 401) {
-              isApiKeyIssue = true;
-            }
           }
         } catch (_) {}
 
-        debugPrint('Llama Guard API error: $errorMessage');
+        debugPrint('Hackclub moderation API error: $errorMessage');
 
         return ModerationResult(
           isAppropriate: true,
@@ -155,7 +156,7 @@ class ContentModerationService {
         );
       }
     } catch (e) {
-      debugPrint('Llama Guard API exception: $e');
+      debugPrint('Hackclub moderation API exception: $e');
       return ModerationResult(
         isAppropriate: true,
         message: 'Moderation service exception: $e',

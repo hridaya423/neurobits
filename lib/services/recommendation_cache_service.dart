@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:neurobits/services/user_analytics_service.dart';
 
@@ -9,7 +11,9 @@ class RecommendationCacheService {
   static const Duration _cacheDuration = Duration(hours: 1);
 
   static Future<List<PersonalizedRecommendation>?> getCachedRecommendations(
-      String userId) async {
+    String userId, {
+    Map<String, dynamic>? userPreferences,
+  }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final cacheTimeStr = prefs.getString('${_cacheTimeKey}_$userId');
@@ -17,6 +21,18 @@ class RecommendationCacheService {
 
       if (cacheTimeStr == null || cachedDataStr == null) {
         return null;
+      }
+
+      if (userPreferences != null) {
+        final prefsStr = prefs.getString('${_cacheKey}_prefs_$userId');
+        if (prefsStr == null) {
+          return null;
+        }
+        final Map<String, dynamic> cachedPrefs =
+            jsonDecode(prefsStr) as Map<String, dynamic>;
+        if (!_matchesPreferences(userPreferences, cachedPrefs)) {
+          return null;
+        }
       }
 
       final cacheTime = DateTime.parse(cacheTimeStr);
@@ -33,8 +49,9 @@ class RecommendationCacheService {
     }
   }
 
-  static Future<void> cacheRecommendations(
-      String userId, List<PersonalizedRecommendation> recommendations) async {
+  static Future<void> cacheRecommendations(String userId,
+      List<PersonalizedRecommendation> recommendations,
+      {Map<String, dynamic>? userPreferences}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final now = DateTime.now().toIso8601String();
@@ -43,6 +60,10 @@ class RecommendationCacheService {
 
       await prefs.setString('${_cacheTimeKey}_$userId', now);
       await prefs.setString('${_cacheKey}_$userId', jsonData);
+      if (userPreferences != null) {
+        await prefs.setString(
+            '${_cacheKey}_prefs_$userId', jsonEncode(userPreferences));
+      }
     } catch (e) {
     }
   }
@@ -77,9 +98,47 @@ class RecommendationCacheService {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('${_cacheKey}_$userId');
+      await prefs.remove('${_cacheKey}_prefs_$userId');
       await prefs.remove('${_cacheTimeKey}_$userId');
     } catch (e) {
     }
+  }
+
+  static bool _matchesPreferences(
+    Map<String, dynamic> current,
+    Map<String, dynamic> cached,
+  ) {
+    final currentGoal = current['learning_goal']?.toString();
+    final cachedGoal = cached['learning_goal']?.toString();
+    final currentLevel = current['experience_level']?.toString();
+    final cachedLevel = cached['experience_level']?.toString();
+    final currentStyle = current['learning_style']?.toString();
+    final cachedStyle = cached['learning_style']?.toString();
+    final currentTime = current['time_commitment_minutes'] ??
+        current['time_commitment'] ??
+        0;
+    final cachedTime = cached['time_commitment_minutes'] ??
+        cached['time_commitment'] ??
+        0;
+    final currentTopics =
+        List<String>.from(current['interested_topics'] ?? const []);
+    final cachedTopics =
+        List<String>.from(cached['interested_topics'] ?? const []);
+
+    if (currentGoal != cachedGoal ||
+        currentLevel != cachedLevel ||
+        currentStyle != cachedStyle ||
+        currentTime.toString() != cachedTime.toString()) {
+      return false;
+    }
+
+    if (currentTopics.length != cachedTopics.length) {
+      return false;
+    }
+
+    final currentSet = currentTopics.map((e) => e.toLowerCase()).toSet();
+    final cachedSet = cachedTopics.map((e) => e.toLowerCase()).toSet();
+    return currentSet.containsAll(cachedSet);
   }
 
   static Map<String, dynamic> _recommendationToJson(

@@ -1,11 +1,14 @@
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:neurobits/services/groq_service.dart';
+import 'package:neurobits/services/ai_service.dart';
 import 'package:neurobits/services/supabase.dart';
 
 class ChallengeLoaderScreen extends ConsumerStatefulWidget {
+
   final dynamic challengeData;
   const ChallengeLoaderScreen({required this.challengeData, super.key});
   @override
@@ -19,22 +22,31 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
   bool _errorLoading = false;
   String _errorMessage = '';
   bool _hasHandledNavigation = false;
+  bool _hasNavigated = false;
   @override
   void initState() {
     super.initState();
   }
 
   @override
+  void dispose() {
+    _hasNavigated = true;
+    super.dispose();
+  }
+
+  @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_hasHandledNavigation) return;
+    if (_hasHandledNavigation || _hasNavigated) return;
     final uri = GoRouterState.of(context).uri.toString();
     debugPrint(
         'ChallengeLoaderScreen.didChangeDependencies: route=$uri, challengeData=${widget.challengeData}');
     if (uri.endsWith('_loaded')) {
       debugPrint('Already on loaded route, not running loader logic.');
+      _hasNavigated = true;
       return;
     }
+
     final data = widget.challengeData;
     if (data is Map<String, dynamic> &&
         data['questions'] is List &&
@@ -44,6 +56,8 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
       _hasHandledNavigation = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         final challengeId = data['id'] ?? UniqueKey().toString();
+        if (_hasNavigated) return;
+        _hasNavigated = true;
         context.go(
           '/challenge/$challengeId/_loaded',
           extra: data,
@@ -53,6 +67,7 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
     }
     _loadChallenge();
   }
+
 
   Future<void> _loadChallenge() async {
     try {
@@ -169,7 +184,7 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
           final count = _parsedChallengeData!['numQuestions'] as int? ?? 5;
           debugPrint("Generating questions for topic: $topic");
           setState(() {
-            _questionsFuture = GroqService.generateQuestions(
+            _questionsFuture = AIService.generateQuestions(
               topic!,
               difficulty,
               count: count,
@@ -188,7 +203,7 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
   }
 
   void _navigateToChallenge(List<Map<String, dynamic>> questions) {
-    if (!mounted) return;
+    if (!mounted || _hasNavigated) return;
     if (questions.isEmpty) {
       _setError("No valid questions found for this challenge.");
       return;
@@ -204,6 +219,7 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
     final loadedRoute = '/challenge/$challengeId/_loaded';
     if (currentRoute == loadedRoute) {
       debugPrint('Already on loaded route $loadedRoute, not navigating again.');
+      _hasNavigated = true;
       return;
     }
     if (!loadedRoute.endsWith('_loaded')) {
@@ -213,6 +229,7 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
     }
     debugPrint(
         'Navigating from $currentRoute to $loadedRoute with questions: ${questions.length}');
+    _hasNavigated = true;
     context.go(
       '/challenge/$challengeId/_loaded',
       extra: {
@@ -228,6 +245,7 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
       },
     );
   }
+
 
   void _setError(String message) {
     setState(() {
@@ -282,21 +300,11 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
                 ),
               );
             } else if (snapshot.hasError) {
-              String errorMessage = "Error generating questions";
-              if (snapshot.error is GroqApiError) {
-                final groqError = snapshot.error as GroqApiError;
-                errorMessage = groqError.toUserMessage();
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) {
-                    groqError.showNotification(context);
-                  }
-                });
-              } else {
-                errorMessage = "Error generating questions: ${snapshot.error}";
-              }
+              final errorMessage = "Error generating questions: ${snapshot.error}";
               _setError(errorMessage);
               return const Center(child: CircularProgressIndicator());
             } else if (snapshot.hasData && snapshot.data!.isNotEmpty) {
+
               _navigateToChallenge(snapshot.data!);
               return const Center(child: CircularProgressIndicator());
             } else {

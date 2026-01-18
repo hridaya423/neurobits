@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/learning_path_providers.dart';
 import '../../services/supabase.dart';
-import 'package:neurobits/services/groq_service.dart';
+import 'package:neurobits/services/ai_service.dart';
 
 class TweakLearningPathScreen extends ConsumerStatefulWidget {
   const TweakLearningPathScreen({super.key});
@@ -81,7 +81,7 @@ class _TweakLearningPathScreenState
         'ai_path_json': metadata,
       }).eq('id', userPathId);
       if (_emphasisTopic?.isNotEmpty ?? false) {
-        final aiResponse = await GroqService.generateLearningPath(
+        final aiResponse = await AIService.generateLearningPath(
           _emphasisTopic!,
           _level,
           _durationDays,
@@ -154,7 +154,7 @@ class _TweakLearningPathScreenState
                 child: ListView(
                   children: [
                     DropdownButtonFormField<String>(
-                      value: _level,
+                      initialValue: _level,
                       decoration:
                           const InputDecoration(labelText: 'Difficulty'),
                       items: const [

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:neurobits/core/providers.dart';
-import 'package:neurobits/services/groq_service.dart';
+import 'package:neurobits/services/ai_service.dart';
 
 class TopicCustomizationScreen extends ConsumerStatefulWidget {
   final String topic;
@@ -68,7 +68,7 @@ class _TopicCustomizationScreenState
 
   Future<void> _checkTopicType() async {
     try {
-      final isCoding = await GroqService.isCodingRelated(widget.topic);
+      final isCoding = await AIService.isCodingRelated(widget.topic);
       if (mounted) {
         setState(() {
           _isCodingRelated = isCoding;
@@ -111,7 +111,7 @@ class _TopicCustomizationScreenState
       _isLoading = true;
     });
     try {
-      final quizData = await GroqService.prepareQuizData(
+      final quizData = await AIService.prepareQuizData(
         topic: widget.topic,
         questionCount: _selectedQuestionCount,
         timePerQuestion: _selectedTimePerQuestion,
@@ -146,7 +146,7 @@ class _TopicCustomizationScreenState
 
         String errorMessage =
             'Unable to create quiz. Please try again with different settings.';
-        if (e.toString().contains('GROQ_API_KEY not configured')) {
+        if (e.toString().contains('OPENROUTER_API_KEY')) {
           errorMessage = 'API configuration error. Please contact support.';
         } else if (e.toString().contains('Invalid question count')) {
           errorMessage =
@@ -319,67 +319,59 @@ class _TopicCustomizationScreenState
                           ],
                         ),
                         const SizedBox(height: 16),
-                        Wrap(
-                          spacing: 16,
-                          runSpacing: 8,
-                          crossAxisAlignment: WrapCrossAlignment.center,
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (_isCodingRelated != null) ...[
-                              Checkbox(
-                                value: _includeCodeChallenges,
-                                onChanged: _isCodingRelated!
-                                    ? (value) {
-                                        setState(() {
-                                          _includeCodeChallenges =
-                                              value ?? false;
-                                        });
-                                      }
-                                    : null,
-                              ),
-                              Text('Code Challenges',
-                                  style: TextStyle(
-                                      color: _isCodingRelated!
-                                          ? null
-                                          : Colors.grey)),
-                            ] else ...[
-                              const SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2)),
-                              const Text('Code Challenges',
-                                  style: TextStyle(color: Colors.grey)),
-                            ],
-                            const SizedBox(width: 16),
-                            Checkbox(
-                              value: _includeMcqs,
-                              onChanged: (value) {
-                                setState(() {
-                                  _includeMcqs = value ?? false;
-                                });
-                              },
+                            const Text('Question Types'),
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 16,
+                              runSpacing: 8,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                if (_isCodingRelated == true) ...[
+                                  Checkbox(
+                                    value: _includeCodeChallenges,
+                                    onChanged: (value) {
+                                      setState(() {
+                                        _includeCodeChallenges = value ?? false;
+                                      });
+                                    },
+                                  ),
+                                  const Text('Code Challenges'),
+                                ],
+                                const SizedBox(width: 16),
+                                Checkbox(
+                                  value: _includeMcqs,
+                                  onChanged: (value) {
+                                    setState(() {
+                                      _includeMcqs = value ?? false;
+                                    });
+                                  },
+                                ),
+                                const Text('Multiple Choice (MCQ)'),
+                                const SizedBox(width: 16),
+                                Checkbox(
+                                  value: _includeInput,
+                                  onChanged: (value) {
+                                    setState(() {
+                                      _includeInput = value ?? false;
+                                    });
+                                  },
+                                ),
+                                const Text('Input Questions'),
+                                const SizedBox(width: 16),
+                                Checkbox(
+                                  value: _includeFillBlank,
+                                  onChanged: (value) {
+                                    setState(() {
+                                      _includeFillBlank = value ?? false;
+                                    });
+                                  },
+                                ),
+                                const Text('Fill in the Blank'),
+                              ],
                             ),
-                            const Text('Multiple Choice (MCQ)'),
-                            const SizedBox(width: 16),
-                            Checkbox(
-                              value: _includeInput,
-                              onChanged: (value) {
-                                setState(() {
-                                  _includeInput = value ?? false;
-                                });
-                              },
-                            ),
-                            const Text('Input Questions'),
-                            const SizedBox(width: 16),
-                            Checkbox(
-                              value: _includeFillBlank,
-                              onChanged: (value) {
-                                setState(() {
-                                  _includeFillBlank = value ?? false;
-                                });
-                              },
-                            ),
-                            const Text('Fill in the Blank'),
                           ],
                         ),
                         if (!validTypeSelected)
@@ -451,10 +443,7 @@ class _TopicCustomizationScreenState
                         const SizedBox(height: 32),
                         Row(
                           children: [
-                            Text(
-                              'Timed mode (per question):',
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
+                            const Text('Timed Mode'),
                             const Spacer(),
                             Switch(
                               value: _timedMode,
@@ -488,7 +477,6 @@ class _TopicCustomizationScreenState
                   ),
                 ),
               ),
-            ),
-    );
+            ));
   }
 }

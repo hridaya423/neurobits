@@ -5,12 +5,15 @@ class QuizChallenge extends StatefulWidget {
   final String question;
   final List<String> options;
   final Function(String) onSubmitted;
+  final bool isDisabled;
   const QuizChallenge({
     required this.question,
     required this.options,
     required this.onSubmitted,
+    this.isDisabled = false,
     super.key,
   });
+
   @override
   State<QuizChallenge> createState() => _QuizChallengeState();
 }
@@ -20,7 +23,7 @@ class _QuizChallengeState extends State<QuizChallenge> {
   bool _isSubmitted = false;
 
   void _selectAnswer(String answer) {
-    if (_isSubmitted) return;
+    if (_isSubmitted || widget.isDisabled) return;
 
     setState(() {
       _selectedAnswer = answer;
@@ -29,6 +32,7 @@ class _QuizChallengeState extends State<QuizChallenge> {
 
     widget.onSubmitted(answer);
   }
+
 
   @override
   void didUpdateWidget(QuizChallenge oldWidget) {
@@ -70,7 +74,10 @@ class _QuizChallengeState extends State<QuizChallenge> {
                 borderRadius: BorderRadius.circular(12),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(12),
-                  onTap: _isSubmitted ? null : () => _selectAnswer(option),
+                   onTap: (_isSubmitted || widget.isDisabled)
+                       ? null
+                       : () => _selectAnswer(option),
+
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
                     padding: const EdgeInsets.all(16.0),

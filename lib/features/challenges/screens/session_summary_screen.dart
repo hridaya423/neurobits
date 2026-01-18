@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:neurobits/services/supabase.dart';
-import 'package:neurobits/services/groq_service.dart';
+import 'package:neurobits/services/ai_service.dart';
 import 'package:share_plus/share_plus.dart';
 import 'dart:io';
 import 'package:flutter/services.dart' show rootBundle;
@@ -47,7 +47,7 @@ class _SessionSummaryScreenState extends ConsumerState<SessionSummaryScreen> {
       aiAnalysis = null;
     });
     try {
-      final String analysis = await GroqService.analyzeQuizPerformance(summary);
+      final String analysis = await AIService.analyzeQuizPerformance(summary);
       if (widget.userId != null) {
         await SupabaseService.saveSessionAnalysis(
           userId: widget.userId!,

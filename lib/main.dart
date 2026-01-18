@@ -1,17 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:neurobits/core/app_router.dart';
 import 'package:neurobits/services/supabase.dart';
-import 'package:neurobits/services/groq_service.dart';
+import 'package:neurobits/services/ai_service.dart';
 import 'package:neurobits/core/widgets/splash_screen.dart';
 import 'package:neurobits/services/content_moderation_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   try {
-    await dotenv.load(fileName: ".env");
+    await dotenv.load(fileName: ".env", isOptional: true);
   } catch (e) {
     debugPrint("Warning: .env file not found, will use dart-define values: $e");
   }
@@ -23,9 +25,9 @@ void main() async {
   }
 
   try {
-    await GroqService.init();
+    await AIService.init();
   } catch (e) {
-    debugPrint("Error initializing GroqService: $e");
+    debugPrint("Error initializing AIService: $e");
   }
 
   try {
@@ -88,10 +90,10 @@ class _SplashWrapper extends StatefulWidget {
 class _SplashWrapperState extends State<_SplashWrapper> {
   bool _showSplash = true;
   static bool _hasShownSplash = false;
-
   @override
   void initState() {
     super.initState();
+    _listenForAuthRedirects();
 
     if (_hasShownSplash) {
       _showSplash = false;
@@ -99,6 +101,20 @@ class _SplashWrapperState extends State<_SplashWrapper> {
       _hasShownSplash = true;
       _startSplashTimer();
     }
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
+
+  void _listenForAuthRedirects() {
+    Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+      if (!mounted) return;
+      if (data.event == AuthChangeEvent.passwordRecovery) {
+        GoRouter.of(context).go('/auth/reset-password');
+      }
+    });
   }
 
   void _startSplashTimer() async {

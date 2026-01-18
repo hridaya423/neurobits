@@ -1,9 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:neurobits/services/supabase.dart';
-import 'package:neurobits/services/groq_service.dart';
+import 'package:neurobits/services/ai_service.dart';
 import 'package:neurobits/services/user_analytics_service.dart';
 import 'package:neurobits/core/learning_path_providers.dart';
+
 
 final challengeFilterDifficultyProvider = StateProvider<String?>((ref) => null);
 final challengeFilterTypeProvider = StateProvider<String?>((ref) => null);
@@ -55,7 +56,7 @@ final aiQuestionsProvider =
     final topic = params['topic'] as String? ?? 'General Knowledge';
     final difficulty = params['difficulty'] as String? ?? 'Medium';
     final count = params['count'] as int? ?? 5;
-    return await GroqService.generateQuestions(topic, difficulty, count: count);
+    return await AIService.generateQuestions(topic, difficulty, count: count);
   },
 );
 final trendingTopicsProvider =
@@ -124,21 +125,21 @@ final mostSolvedChallengesProvider =
   }
 });
 final userProvider = StreamProvider<Map<String, dynamic>?>((ref) async* {
+  bool _isCreatingUser = false;
+
   Future<Map<String, dynamic>?> fetchUserData(String userId) async {
     const maxRetries = 3;
     int retryCount = 0;
     while (retryCount < maxRetries) {
       try {
-        debugPrint(
-            '[fetchUserData] Attempt ${retryCount + 1} for user: $userId');
+        debugPrint('[fetchUserData] Attempt ${retryCount + 1} for user: $userId');
         var userData = await SupabaseService.client
             .from('users')
             .select('*')
             .eq('id', userId)
             .maybeSingle();
         if (userData == null) {
-          debugPrint(
-              '[fetchUserData] User data NOT found for $userId, attempting to create...');
+          debugPrint('[fetchUserData] User data NOT found for $userId, attempting to create...');
           final userEmail = SupabaseService.client.auth.currentUser?.email;
           if (userEmail != null) {
             final Map<String, dynamic> defaultUserData = {
@@ -157,18 +158,38 @@ final userProvider = StreamProvider<Map<String, dynamic>?>((ref) async* {
               'adaptive_difficulty_enabled': true,
             };
             try {
+              if (_isCreatingUser) {
+                await Future.delayed(const Duration(milliseconds: 200));
+                continue;
+              }
+              _isCreatingUser = true;
+              final existing = await SupabaseService.client
+                  .from('users')
+                  .select('id')
+                  .eq('id', userId)
+                  .maybeSingle();
+              if (existing != null) {
+                _isCreatingUser = false;
+                final fullUser = await SupabaseService.client
+                    .from('users')
+                    .select('*')
+                    .eq('id', userId)
+                    .maybeSingle();
+                return fullUser ?? existing;
+              }
               final upsertResponse = await SupabaseService.client
                   .from('users')
                   .upsert(defaultUserData, onConflict: 'id')
                   .select()
                   .maybeSingle();
+              _isCreatingUser = false;
               if (upsertResponse != null) {
-                debugPrint(
-                    '[fetchUserData] Successfully CREATED user data via upsert for $userId');
+                debugPrint('[fetchUserData] Successfully CREATED user data via upsert for $userId');
                 return upsertResponse;
               }
               return defaultUserData;
             } catch (e) {
+              _isCreatingUser = false;
               debugPrint('[fetchUserData] Error during user creation: $e');
               retryCount++;
               if (retryCount == maxRetries) rethrow;
@@ -188,6 +209,7 @@ final userProvider = StreamProvider<Map<String, dynamic>?>((ref) async* {
     }
     return null;
   }
+
 
   final initialUser = SupabaseService.client.auth.currentUser;
 
