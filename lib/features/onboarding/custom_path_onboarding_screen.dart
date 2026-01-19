@@ -246,6 +246,37 @@ class _CustomPathOnboardingScreenState
     }
   }
 
+  Widget _buildDropdownField({
+    required String value,
+    required String label,
+    required List<DropdownMenuItem<String>> items,
+    required ValueChanged<String?> onChanged,
+    String? Function(String?)? validator,
+  }) {
+    return FormField<String>(
+      initialValue: value,
+      validator: validator,
+      builder: (state) {
+        return InputDecorator(
+          decoration: InputDecoration(
+            labelText: label,
+            errorText: state.errorText,
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: state.value,
+              items: items,
+              onChanged: (selected) {
+                state.didChange(selected);
+                onChanged(selected);
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -266,9 +297,9 @@ class _CustomPathOnboardingScreenState
                     : null,
               ),
               const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                initialValue: _duration,
-                decoration: const InputDecoration(labelText: 'How long?'),
+              _buildDropdownField(
+                value: _duration,
+                label: 'How long?',
                 items: List.generate(
                   durations.length,
                   (i) => DropdownMenuItem(
@@ -278,10 +309,9 @@ class _CustomPathOnboardingScreenState
                 validator: (v) => v == null ? 'Select duration' : null,
               ),
               const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                initialValue: _dailyMinutes,
-                decoration:
-                    const InputDecoration(labelText: 'How much time per day?'),
+              _buildDropdownField(
+                value: _dailyMinutes,
+                label: 'How much time per day?',
                 items: List.generate(
                   dailyMinutesOptions.length,
                   (i) => DropdownMenuItem(
@@ -292,9 +322,9 @@ class _CustomPathOnboardingScreenState
                 validator: (v) => v == null ? 'Select daily time' : null,
               ),
               const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                initialValue: _level,
-                decoration: const InputDecoration(labelText: 'Select level'),
+              _buildDropdownField(
+                value: _level,
+                label: 'Select level',
                 items: levels
                     .map((l) => DropdownMenuItem(value: l, child: Text(l)))
                     .toList(),

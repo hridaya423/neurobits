@@ -95,6 +95,37 @@ class _QuizPreferencesOnboardingScreenState
     }
   }
 
+  Widget _buildDropdownField<T>({
+    required T value,
+    required String label,
+    required List<DropdownMenuItem<T>> items,
+    required ValueChanged<T?> onChanged,
+    String? Function(T?)? validator,
+  }) {
+    return FormField<T>(
+      initialValue: value,
+      validator: validator,
+      builder: (state) {
+        return InputDecorator(
+          decoration: InputDecoration(
+            labelText: label,
+            errorText: state.errorText,
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<T>(
+              value: state.value,
+              items: items,
+              onChanged: (selected) {
+                state.didChange(selected);
+                onChanged(selected);
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_prefsLoading) {
@@ -122,10 +153,9 @@ class _QuizPreferencesOnboardingScreenState
               value: _timedModeEnabled,
               onChanged: (v) => setState(() => _timedModeEnabled = v),
             ),
-            DropdownButtonFormField<int>(
-              decoration: const InputDecoration(
-                  labelText: 'Default Number of Questions'),
-              initialValue: _defaultNumQuestions,
+            _buildDropdownField<int>(
+              label: 'Default Number of Questions',
+              value: _defaultNumQuestions,
               items: questionCountOptions
                   .map((cnt) =>
                       DropdownMenuItem(value: cnt, child: Text('$cnt')))
@@ -133,20 +163,18 @@ class _QuizPreferencesOnboardingScreenState
               onChanged: (v) => setState(() => _defaultNumQuestions = v!),
             ),
             const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              decoration:
-                  const InputDecoration(labelText: 'Default Difficulty'),
-              initialValue: _defaultDifficulty,
+            _buildDropdownField<String>(
+              label: 'Default Difficulty',
+              value: _defaultDifficulty,
               items: difficultyOptions
                   .map((d) => DropdownMenuItem(value: d, child: Text(d)))
                   .toList(),
               onChanged: (v) => setState(() => _defaultDifficulty = v!),
             ),
             const SizedBox(height: 12),
-            DropdownButtonFormField<int>(
-              decoration: const InputDecoration(
-                  labelText: 'Time per Question (seconds)'),
-              initialValue: _defaultTimePerQuestionSec,
+            _buildDropdownField<int>(
+              label: 'Time per Question (seconds)',
+              value: _defaultTimePerQuestionSec,
               items: timePerQuestionOptions
                   .map((t) => DropdownMenuItem(value: t, child: Text('$t sec')))
                   .toList(),

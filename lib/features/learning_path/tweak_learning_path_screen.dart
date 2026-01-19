@@ -133,6 +133,32 @@ class _TweakLearningPathScreenState
     }
   }
 
+  Widget _buildDropdownField({
+    required String value,
+    required String label,
+    required List<DropdownMenuItem<String>> items,
+    required ValueChanged<String?> onChanged,
+  }) {
+    return FormField<String>(
+      initialValue: value,
+      builder: (state) {
+        return InputDecorator(
+          decoration: InputDecoration(labelText: label),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: state.value,
+              items: items,
+              onChanged: (selected) {
+                state.didChange(selected);
+                onChanged(selected);
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final userPath = ref.watch(userPathProvider);
@@ -153,10 +179,9 @@ class _TweakLearningPathScreenState
                 key: _formKey,
                 child: ListView(
                   children: [
-                    DropdownButtonFormField<String>(
-                      initialValue: _level,
-                      decoration:
-                          const InputDecoration(labelText: 'Difficulty'),
+                    _buildDropdownField(
+                      value: _level,
+                      label: 'Difficulty',
                       items: const [
                         'Beginner',
                         'Intermediate',
