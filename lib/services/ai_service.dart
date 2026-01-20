@@ -58,9 +58,8 @@ class AIServiceError implements Exception {
 class AIService {
   static const String _baseUrl =
       'https://ai.hackclub.com/proxy/v1/chat/completions';
-  static const String _primaryModel = 'bytedance-seed/seed-1.6-flash';
+  static const String _primaryModel = 'google/gemini-3-flash-preview';
   static const List<String> _fallbackModels = [
-    'google/gemini-3-flash-preview',
     'moonshotai/kimi-k2-0905',
     'z-ai/glm-4.7',
   ];
