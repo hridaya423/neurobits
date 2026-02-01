@@ -125,7 +125,7 @@ final mostSolvedChallengesProvider =
   }
 });
 final userProvider = StreamProvider<Map<String, dynamic>?>((ref) async* {
-  bool _isCreatingUser = false;
+  bool isCreatingUser = false;
 
   Future<Map<String, dynamic>?> fetchUserData(String userId) async {
     const maxRetries = 3;
@@ -158,18 +158,18 @@ final userProvider = StreamProvider<Map<String, dynamic>?>((ref) async* {
               'adaptive_difficulty_enabled': true,
             };
             try {
-              if (_isCreatingUser) {
+              if (isCreatingUser) {
                 await Future.delayed(const Duration(milliseconds: 200));
                 continue;
               }
-              _isCreatingUser = true;
+              isCreatingUser = true;
               final existing = await SupabaseService.client
                   .from('users')
                   .select('id')
                   .eq('id', userId)
                   .maybeSingle();
               if (existing != null) {
-                _isCreatingUser = false;
+                isCreatingUser = false;
                 final fullUser = await SupabaseService.client
                     .from('users')
                     .select('*')
@@ -182,14 +182,14 @@ final userProvider = StreamProvider<Map<String, dynamic>?>((ref) async* {
                   .upsert(defaultUserData, onConflict: 'id')
                   .select()
                   .maybeSingle();
-              _isCreatingUser = false;
+              isCreatingUser = false;
               if (upsertResponse != null) {
                 debugPrint('[fetchUserData] Successfully CREATED user data via upsert for $userId');
                 return upsertResponse;
               }
               return defaultUserData;
             } catch (e) {
-              _isCreatingUser = false;
+              isCreatingUser = false;
               debugPrint('[fetchUserData] Error during user creation: $e');
               retryCount++;
               if (retryCount == maxRetries) rethrow;

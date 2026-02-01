@@ -826,7 +826,7 @@ class SupabaseService {
       } else {
         return false;
       }
-    } catch (e, stackTrace) {
+    } catch (e) {
       debugPrint('[checkAndAdvancePathStep] Error: $e');
       return false;
     }

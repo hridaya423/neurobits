@@ -599,7 +599,7 @@ class QuizSettingsSection extends ConsumerWidget {
                   decoration: const InputDecoration(
                       labelText: 'Default Number of Questions',
                       border: OutlineInputBorder()),
-                  value: questionCountOptions.contains(currentQuestionCount)
+                  initialValue: questionCountOptions.contains(currentQuestionCount)
                       ? currentQuestionCount
                       : questionCountOptions.first,
                   items: questionCountOptions
@@ -617,7 +617,7 @@ class QuizSettingsSection extends ConsumerWidget {
                   decoration: const InputDecoration(
                       labelText: 'Default Time per Question',
                       border: OutlineInputBorder()),
-                  value: timePerQuestionOptions.contains(currentTimePerQuestion)
+                  initialValue: timePerQuestionOptions.contains(currentTimePerQuestion)
                       ? currentTimePerQuestion
                       : timePerQuestionOptions[5],
                   items: timePerQuestionOptions
@@ -636,7 +636,7 @@ class QuizSettingsSection extends ConsumerWidget {
                   decoration: const InputDecoration(
                       labelText: 'Default Difficulty',
                       border: OutlineInputBorder()),
-                  value: difficultyOptions.contains(currentDifficulty)
+                  initialValue: difficultyOptions.contains(currentDifficulty)
                       ? currentDifficulty
                       : difficultyOptions[1],
                   items: difficultyOptions
