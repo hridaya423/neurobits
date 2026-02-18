@@ -2,16 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:neurobits/core/go_router_refresh_stream.dart';
-import 'package:neurobits/features/auth/login_screen.dart';
-import 'package:neurobits/features/auth/signup_screen.dart';
-import 'package:neurobits/features/auth/forgot_password_screen.dart';
-import 'package:neurobits/features/auth/reset_password_screen.dart';
+
 import 'package:neurobits/features/challenges/screens/quiz_screen.dart';
 import 'package:neurobits/features/challenges/screens/challenge_loader_screen.dart';
 import 'package:neurobits/features/dashboard/dashboard_screen.dart';
 import 'package:neurobits/features/profile/screens/profile_screen.dart';
 import 'package:neurobits/features/landing/landingpage.dart';
-import 'package:neurobits/services/supabase.dart';
+import 'package:neurobits/features/auth/login_screen.dart';
+import 'package:neurobits/services/auth_service.dart';
 import 'package:neurobits/features/challenges/screens/topic_customization_screen.dart';
 import 'package:neurobits/features/onboarding/onboarding_gate.dart';
 import 'dart:convert';
@@ -19,22 +17,17 @@ import 'dart:convert';
 final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     debugLogDiagnostics: true,
-    initialLocation: '/landing',
+    initialLocation: '/',
     refreshListenable:
-        GoRouterRefreshStream(SupabaseService.client.auth.onAuthStateChange),
+        GoRouterRefreshStream(AuthService.instance.authStateChanges),
     redirect: (context, state) {
-      final isAuthRoute = state.matchedLocation.startsWith('/auth');
-      final isLandingRoute = state.matchedLocation == '/landing';
-      final isResetRoute = state.matchedLocation == '/auth/reset-password';
-      final isLoggedIn = SupabaseService.client.auth.currentUser != null;
-      final isDashboard = state.matchedLocation == '/';
-      if (!isLoggedIn && !isAuthRoute && !isLandingRoute) {
+      final matchedLocation = state.matchedLocation;
+      final isAuthRoute =
+          matchedLocation == '/landing' || matchedLocation == '/login';
+      final isLoggedIn =
+          AuthService.instance.currentStatus == AuthStatus.authenticated;
+      if (!isLoggedIn && !isAuthRoute) {
         return '/landing';
-      }
-      if (isLoggedIn && (isAuthRoute || isLandingRoute) && !isResetRoute) {
-        if (!isDashboard) {
-          return '/';
-        }
       }
       return null;
     },
@@ -46,6 +39,17 @@ final routerProvider = Provider<GoRouter>((ref) {
           child: NewLandingPage(),
           transitionsBuilder: _fadeTransition,
         ),
+      ),
+      GoRoute(
+        path: '/login',
+        pageBuilder: (context, state) {
+          final isSignUp = state.uri.queryParameters['signup'] == 'true';
+          return CustomTransitionPage(
+            transitionDuration: const Duration(milliseconds: 300),
+            child: LoginScreen(initialSignUp: isSignUp),
+            transitionsBuilder: _slideTransition,
+          );
+        },
       ),
       GoRoute(
         path: '/',
@@ -92,10 +96,16 @@ final routerProvider = Provider<GoRouter>((ref) {
                             '',
                         questions: questions,
                         quizName: challenge['quiz_name']?.toString() ??
+                            challenge['quizName']?.toString() ??
                             challenge['title']?.toString(),
                         timedMode: challenge['timedMode'] is bool
                             ? challenge['timedMode']
                             : true,
+                        challengeId: challenge['challengeId']?.toString() ??
+                            challenge['_id']?.toString(),
+                        userPathChallengeId:
+                            challenge['userPathChallengeId']?.toString() ??
+                                challenge['user_path_challenge_id']?.toString(),
                       )
                     : Scaffold(
                         body: Center(child: Text("Invalid challenge data"))),
@@ -106,8 +116,6 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: 'challenge/:id',
             pageBuilder: (context, state) {
-              debugPrint(
-                  "Navigating to challenge loader with extra: ${state.extra}");
               return CustomTransitionPage(
                 transitionDuration: const Duration(milliseconds: 300),
                 child: ChallengeLoaderScreen(challengeData: state.extra),
@@ -120,7 +128,12 @@ final routerProvider = Provider<GoRouter>((ref) {
             pageBuilder: (context, state) => CustomTransitionPage(
               transitionDuration: const Duration(milliseconds: 300),
               child: TopicCustomizationScreen(
-                topic: state.pathParameters['topic'] ?? '',
+                topic: Uri.decodeComponent(state.pathParameters['topic'] ?? ''),
+                userPathChallengeId: (state.extra is Map<String, dynamic>)
+                    ? (state.extra
+                            as Map<String, dynamic>)['userPathChallengeId']
+                        ?.toString()
+                    : null,
               ),
               transitionsBuilder: _slideTransition,
             ),
@@ -128,14 +141,34 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: 'ai-challenge',
             pageBuilder: (context, state) {
-              final extra = state.extra as Map<String, dynamic>;
+              final extra = state.extra;
+              if (extra is! Map<String, dynamic>) {
+                return const CustomTransitionPage(
+                  transitionDuration: Duration(milliseconds: 300),
+                  child: Scaffold(
+                    body: Center(child: Text('Invalid challenge data')),
+                  ),
+                  transitionsBuilder: _slideTransition,
+                );
+              }
               return CustomTransitionPage(
                 transitionDuration: const Duration(milliseconds: 300),
                 child: ChallengeScreen(
-                  topic: extra['topic'] as String,
-                  questions: extra['questions'] as List<Map<String, dynamic>>,
-                  quizName: extra['quiz_name'] as String,
-                  timedMode: extra['timedMode'] as bool,
+                  topic: extra['topic']?.toString() ?? '',
+                  questions: (extra['questions'] is List)
+                      ? List<Map<String, dynamic>>.from(
+                          (extra['questions'] as List)
+                              .whereType<Map>()
+                              .map((e) => Map<String, dynamic>.from(e)),
+                        )
+                      : <Map<String, dynamic>>[],
+                  quizName: extra['quiz_name']?.toString() ??
+                      extra['quizName']?.toString(),
+                  timedMode: extra['timedMode'] is bool
+                      ? extra['timedMode'] as bool
+                      : true,
+                  challengeId: extra['challengeId']?.toString(),
+                  userPathChallengeId: extra['userPathChallengeId']?.toString(),
                 ),
                 transitionsBuilder: _slideTransition,
               );
@@ -148,38 +181,6 @@ final routerProvider = Provider<GoRouter>((ref) {
         pageBuilder: (context, state) => const CustomTransitionPage(
           transitionDuration: Duration(milliseconds: 300),
           child: OnboardingGate(child: DashboardScreen()),
-          transitionsBuilder: _fadeTransition,
-        ),
-      ),
-      GoRoute(
-        path: '/auth/login',
-        pageBuilder: (context, state) => const CustomTransitionPage(
-          transitionDuration: Duration(milliseconds: 300),
-          child: LoginScreen(),
-          transitionsBuilder: _fadeTransition,
-        ),
-      ),
-      GoRoute(
-        path: '/auth/signup',
-        pageBuilder: (context, state) => const CustomTransitionPage(
-          transitionDuration: Duration(milliseconds: 300),
-          child: SignupScreen(),
-          transitionsBuilder: _fadeTransition,
-        ),
-      ),
-      GoRoute(
-        path: '/auth/forgot-password',
-        pageBuilder: (context, state) => const CustomTransitionPage(
-          transitionDuration: Duration(milliseconds: 300),
-          child: ForgotPasswordScreen(),
-          transitionsBuilder: _fadeTransition,
-        ),
-      ),
-      GoRoute(
-        path: '/auth/reset-password',
-        pageBuilder: (context, state) => const CustomTransitionPage(
-          transitionDuration: Duration(milliseconds: 300),
-          child: ResetPasswordScreen(),
           transitionsBuilder: _fadeTransition,
         ),
       ),

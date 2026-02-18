@@ -1,19 +1,20 @@
+import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:neurobits/services/supabase.dart';
 import 'package:neurobits/core/providers.dart';
+import 'package:neurobits/services/convex_client_service.dart';
 import 'package:flutter/foundation.dart';
 
 final userPathProvider = StateProvider<Map<String, dynamic>?>((ref) {
   return null;
 });
+
 final userPathDataProvider = FutureProvider<Map<String, dynamic>?>((ref) async {
   final userAsync = ref.watch(userProvider);
   return await userAsync.when(
     data: (user) async {
       if (user == null) return null;
       try {
-        final path =
-            await ref.watch(activeLearningPathProvider(user['id']).future);
+        final path = await ref.watch(activeLearningPathProvider.future);
         if (path != null) {
           ref.read(userPathProvider.notifier).state = path;
         }
@@ -27,12 +28,14 @@ final userPathDataProvider = FutureProvider<Map<String, dynamic>?>((ref) async {
     error: (_, __) => null,
   );
 });
+
 final currentChallengeProvider =
     FutureProvider<Map<String, dynamic>?>((ref) async {
   final userPath = ref.watch(userPathProvider);
   if (userPath == null) return null;
-  final currentStep = userPath['current_step'] ?? 1;
-  final topics = userPath['topics'] as List<dynamic>?;
+  final currentStep = (userPath['current_step'] as num?)?.toInt() ?? 1;
+  final topics =
+      isConvexList(userPath['topics']) ? toList(userPath['topics']) : null;
   if (topics == null || topics.isEmpty) return null;
   final currentTopic = topics.firstWhere(
     (t) => t['step_number'] == currentStep,
@@ -40,13 +43,16 @@ final currentChallengeProvider =
   );
   return currentTopic;
 });
+
 final roadmapProvider = FutureProvider<List<Map<String, dynamic>>>((ref) async {
   final userPath = ref.watch(userPathProvider);
   if (userPath == null) return [];
-  final topics = userPath['topics'] as List<dynamic>?;
+  final topics =
+      isConvexList(userPath['topics']) ? toList(userPath['topics']) : null;
   if (topics == null) return [];
-  return List<Map<String, dynamic>>.from(topics);
+  return topics.map((e) => toMap(e)).toList();
 });
+
 void initializeUserPathProvider(WidgetRef ref) {
   final userAsync = ref.watch(userProvider);
 
@@ -59,7 +65,7 @@ void initializeUserPathProvider(WidgetRef ref) {
       }
     });
 
-    ref.listen(activeLearningPathProvider(user['id']), (previous, next) {
+    ref.listen(activeLearningPathProvider, (previous, next) {
       next.whenData((path) {
         if (path != null) {
           final currentPath = ref.read(userPathProvider);
@@ -73,6 +79,7 @@ void initializeUserPathProvider(WidgetRef ref) {
 }
 
 final isPathLoadingProvider = StateProvider<bool>((ref) => false);
+
 final initializePathProvider =
     FutureProvider<Map<String, dynamic>?>((ref) async {
   final userAsync = ref.watch(userProvider);
@@ -80,8 +87,7 @@ final initializePathProvider =
     data: (user) async {
       if (user == null) return null;
       try {
-        final path =
-            await ref.read(activeLearningPathProvider(user['id']).future);
+        final path = await ref.read(activeLearningPathProvider.future);
         return path;
       } catch (e) {
         debugPrint('Error initializing path: $e');
@@ -92,165 +98,160 @@ final initializePathProvider =
     error: (_, __) => null,
   );
 });
+
 final completedPathsProvider =
     FutureProvider.family<List<Map<String, dynamic>>, String>(
         (ref, userId) async {
   try {
-    final completedPaths = await SupabaseService.client
-        .from('user_learning_paths')
-        .select('''
-          id,
-          path_id,
-          current_step,
-          started_at,
-          completed_at,
-          learning_paths (
-            id,
-            name,
-            description,
-            is_active
-          )
-        ''')
-        .eq('user_id', userId)
-        .not('completed_at', 'is', null)
-        .order('completed_at', ascending: false);
-    return List<Map<String, dynamic>>.from(completedPaths);
+    final pathRepo = ref.read(pathRepositoryProvider);
+    final completed = await pathRepo.listCompleted();
+    return completed.map((entry) {
+      final up = entry['userPath'] as Map<String, dynamic>? ?? {};
+      return {
+        'id': up['_id'],
+        'user_path_id': up['_id'],
+        'path_id': up['pathId'],
+        'current_step': up['currentStep'],
+        'started_at': up['startedAt'],
+        'completed_at': up['completedAt'],
+        'name': entry['pathName'] ?? 'Unnamed Path',
+        'description': entry['pathDescription'] ?? '',
+        'ai_path_json': up['aiPathJson'],
+        'duration_days': up['durationDays'],
+        'daily_minutes': up['dailyMinutes'],
+        'level': up['level'],
+        'is_custom': up['isCustom'] ?? false,
+      };
+    }).toList();
   } catch (e) {
     debugPrint('Error fetching completed paths: $e');
     return [];
   }
 });
+
 final activeLearningPathProvider =
-    FutureProvider.family<Map<String, dynamic>?, String>((ref, userId) async {
+    FutureProvider<Map<String, dynamic>?>((ref) async {
+  final userAsync = ref.watch(userProvider);
+  final user = userAsync.value;
+  if (user == null) return null;
+
   try {
-    final userPathResults = await SupabaseService.client
-        .from('user_learning_paths')
-        .select(
-            'id, path_id, current_step, started_at, completed_at, is_complete, duration_days, daily_minutes, level, ai_path_json')
-        .eq('user_id', userId)
-        .is_('completed_at', null)
-        .order('started_at', ascending: false);
+    final pathRepo = ref.read(pathRepositoryProvider);
+    final activeResult = await pathRepo.getActive();
+    if (activeResult == null) return null;
 
-    if (userPathResults.isEmpty) return null;
+    final userPath = activeResult['userPath'] as Map<String, dynamic>? ?? {};
+    final progress = activeResult['progress'] as Map<String, dynamic>? ?? {};
+    final pathName = activeResult['pathName'] as String?;
+    final pathDescription = activeResult['pathDescription'] as String?;
 
-    final userPath = userPathResults.first;
+    final userPathId = userPath['_id'] as String?;
+    if (userPathId == null) return null;
 
-    final pathId = userPath['path_id'];
+    final challenges =
+        await pathRepo.listChallengesForPath(userPathId: userPathId);
 
-    if (pathId == null) {
-      return null;
+    Map<String, dynamic>? metadata;
+    String? aiDescription;
+    List<dynamic>? aiPathList;
+    final aiPathJsonStr = userPath['aiPathJson'] as String?;
+    if (aiPathJsonStr != null && aiPathJsonStr.isNotEmpty) {
+      try {
+        final parsed = json.decode(aiPathJsonStr);
+        if (parsed is Map<String, dynamic>) {
+          metadata = parsed;
+          aiDescription = parsed['path_description']?.toString();
+          if (parsed['path'] is List) {
+            aiPathList = parsed['path'] as List<dynamic>;
+          }
+        } else if (parsed is List<dynamic>) {
+          aiPathList = parsed;
+        }
+      } catch (_) {
+      }
     }
 
-    final learningPathResults = await SupabaseService.client
-        .from('learning_paths')
-        .select('id, name, description, is_active')
-        .eq('id', pathId);
+    final String? resolvedDescription = (pathDescription == null ||
+            pathDescription.toLowerCase().startsWith('ai-generated') ||
+            pathDescription.trim().isEmpty)
+        ? (aiDescription ?? pathDescription)
+        : pathDescription;
 
-    if (learningPathResults.isEmpty) {
-      return null;
-    }
-
-    final learningPath = learningPathResults.first;
-    if (learningPath == null) return null;
-    final pathTopics = await SupabaseService.client
-        .from('learning_path_topics')
-        .select('*, topics(name)')
-        .eq('path_id', learningPath['id'])
-        .order('step_number', ascending: true);
-    final pathChallenges = await SupabaseService.client
-        .from('user_path_challenges')
-        .select('*')
-        .eq('user_path_id', userPath['id'])
-        .order('day', ascending: true);
-
-    if (pathChallenges.isEmpty && pathTopics.isNotEmpty) {
-      final challengesToInsert = pathTopics.map((topic) {
-        final topicData = topic['topics'];
-        final topicName = topicData != null && topicData['name'] != null
-            ? topicData['name']
-            : 'Topic ${topic['step_number']}';
+    List<Map<String, dynamic>> topics = [];
+    if (aiPathList != null) {
+      topics = aiPathList.whereType<Map>().map((item) {
+        final data = Map<String, dynamic>.from(item);
+        final day = (data['day'] as num?)?.toInt() ?? 1;
         return {
-          'user_path_id': userPath['id'],
-          'day': topic['step_number'],
-          'topic': topicName,
-          'challenge_type': 'quiz',
-          'title': topicName,
-          'description': topic['description'] ?? '',
-          'completed': false,
+          'step_number': day,
+          'day': day,
+          'topic': data['topic'],
+          'title': data['title'],
+          'description': data['description'],
+          'challenge_type': data['challenge_type'],
         };
       }).toList();
-
-      await SupabaseService.client
-          .from('user_path_challenges')
-          .insert(challengesToInsert);
-
-      final newPathChallenges = await SupabaseService.client
-          .from('user_path_challenges')
-          .select('*')
-          .eq('user_path_id', userPath['id'])
-          .order('day', ascending: true);
-      final Map<String, dynamic>? metadata =
-          userPath['ai_path_json'] as Map<String, dynamic>?;
-
-      return {
-        'id': learningPath['id'],
-        'name': learningPath['name'],
-        'description': learningPath['description'],
-        'is_active': learningPath['is_active'],
-        'current_step': userPath['current_step'] ?? 1,
-        'user_path_id': userPath['id'],
-        'started_at': userPath['started_at'],
-        'completed_at': userPath['completed_at'],
-        'is_complete': userPath['is_complete'] ?? false,
-        'duration_days': userPath['duration_days'] as int? ?? 0,
-        'daily_minutes': userPath['daily_minutes'] as int? ?? 0,
-        'level': userPath['level'] as String? ?? '',
-        'ai_path_json': userPath['ai_path_json'] as Map<String, dynamic>?,
-        'topics': pathTopics,
-        'challenges': newPathChallenges, // Use newly created challenges
-        'metadata': metadata,
-        'total_steps': newPathChallenges.length,
-      };
     }
 
-    final Map<String, dynamic>? metadata =
-        userPath['ai_path_json'] as Map<String, dynamic>?;
+    if (topics.isEmpty) {
+      final byDay = <int, Map<String, dynamic>>{};
+      for (final ch in challenges) {
+        final day = (ch['day'] as num?)?.toInt() ?? 1;
+        if (!byDay.containsKey(day)) {
+          byDay[day] = {
+            'step_number': day,
+            'day': day,
+            'topic': ch['topic'],
+            'title': ch['title'],
+            'description': ch['description'],
+            'challenge_type': ch['challengeType'],
+            '_id': ch['_id']?.toString(),
+          };
+        }
+      }
+      final dayKeys = byDay.keys.toList()..sort();
+      topics = dayKeys.map((day) => byDay[day]!).toList();
+    }
+
     return {
-      'id': learningPath['id'],
-      'name': learningPath['name'],
-      'description': learningPath['description'],
-      'is_active': learningPath['is_active'],
-      'current_step': userPath['current_step'] ?? 1,
-      'user_path_id': userPath['id'],
-      'started_at': userPath['started_at'],
-      'completed_at': userPath['completed_at'],
-      'is_complete': userPath['is_complete'] ?? false,
-      'duration_days': userPath['duration_days'] as int? ?? 0,
-      'daily_minutes': userPath['daily_minutes'] as int? ?? 0,
+      'id': userPath['pathId'] ?? userPathId,
+      'name': pathName ?? 'Learning Path',
+      'description': resolvedDescription ?? '',
+      'is_active': userPath['isActive'] ?? false,
+      'current_step': (userPath['currentStep'] as num?)?.toInt() ?? 1,
+      'user_path_id': userPathId,
+      'started_at': userPath['startedAt'],
+      'completed_at': userPath['completedAt'],
+      'is_complete': userPath['isComplete'] ?? false,
+      'duration_days': userPath['durationDays'] is num
+          ? (userPath['durationDays'] as num).toInt()
+          : 0,
+      'daily_minutes': userPath['dailyMinutes'] is num
+          ? (userPath['dailyMinutes'] as num).toInt()
+          : 0,
       'level': userPath['level'] as String? ?? '',
-      'ai_path_json': userPath['ai_path_json'] as Map<String, dynamic>?,
-      'topics': pathTopics,
-      'challenges': pathChallenges,
+      'ai_path_json': aiPathJsonStr,
+      'topics': topics,
+      'path': topics,
+      'challenges': challenges,
       'metadata': metadata,
-      'total_steps': pathChallenges.isNotEmpty
-          ? pathChallenges.length
-          : pathTopics.length, // ✅ Prefer challenges count
+      'total_steps': topics.isNotEmpty
+          ? topics.length
+          : (userPath['durationDays'] as num?)?.toInt() ?? 0,
+      'progress': progress,
     };
   } catch (e) {
     debugPrint('Error fetching active learning path: $e');
     return null;
   }
 });
+
 final userPathChallengesProvider =
     FutureProvider.family<List<Map<String, dynamic>>, String>(
         (ref, userPathId) async {
   try {
-    final res = await SupabaseService.client
-        .from('user_path_challenges')
-        .select('*')
-        .eq('user_path_id', userPathId)
-        .order('day', ascending: true);
-    return List<Map<String, dynamic>>.from(res);
+    final pathRepo = ref.read(pathRepositoryProvider);
+    return await pathRepo.listChallengesForPath(userPathId: userPathId);
   } catch (e) {
     debugPrint('Error fetching path challenges: $e');
     return [];

@@ -4,10 +4,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:neurobits/core/providers.dart';
 import 'package:neurobits/services/ai_service.dart';
+import 'package:neurobits/services/convex_client_service.dart';
 
 class TopicCustomizationScreen extends ConsumerStatefulWidget {
   final String topic;
-  const TopicCustomizationScreen({required this.topic, super.key});
+  final String? userPathChallengeId;
+  const TopicCustomizationScreen({
+    required this.topic,
+    this.userPathChallengeId,
+    super.key,
+  });
   @override
   ConsumerState<TopicCustomizationScreen> createState() =>
       _TopicCustomizationScreenState();
@@ -31,6 +37,8 @@ class _TopicCustomizationScreenState
   late bool _includeFillBlank;
   bool? _isCodingRelated;
   bool _initialPrefsLoaded = false;
+  bool _quickStartEnabled = true;
+  bool _autoStartTriggered = false;
   @override
   void initState() {
     super.initState();
@@ -94,8 +102,6 @@ class _TopicCustomizationScreenState
   }
 
   Future<void> _generateQuiz() async {
-    debugPrint(
-        "[_generateQuiz] Starting quiz generation via customization screen...");
     if (!mounted) return;
 
     if (widget.topic.trim().length < 2) {
@@ -123,25 +129,23 @@ class _TopicCustomizationScreenState
         timedMode: _timedMode,
         ref: ref,
         totalTimeLimit: _selectedTotalTimeLimit,
+        userPathChallengeId: widget.userPathChallengeId,
       );
       final String routeKey = quizData['routeKey'];
       final Map<String, dynamic> extraData = quizData['extraData'];
       if (!mounted) {
-        debugPrint(
-            "[_generateQuiz] Widget not mounted after preparation, aborting navigation.");
         return;
       }
       context.pushReplacement(
         '/challenge/$routeKey/_loaded',
         extra: extraData,
       );
-      debugPrint("[_generateQuiz] Navigation completed successfully.");
-    } catch (e, stackTrace) {
-      debugPrint(
-          "[_generateQuiz] Error during quiz generation: $e\n$stackTrace");
+    } catch (e) {
+      debugPrint("[_generateQuiz] Error during quiz generation: $e");
       if (mounted) {
         setState(() {
           _isLoading = false;
+          _autoStartTriggered = false;
         });
 
         String errorMessage =
@@ -174,309 +178,351 @@ class _TopicCustomizationScreenState
         _includeMcqs ||
         _includeInput ||
         _includeFillBlank;
+    final showLoading =
+        _isLoading || (_quickStartEnabled && _autoStartTriggered);
+    final showQuickStartTitle = _quickStartEnabled && _initialPrefsLoaded;
+    if (_quickStartEnabled && _initialPrefsLoaded && !_autoStartTriggered) {
+      _autoStartTriggered = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_isLoading) {
+          _generateQuiz();
+        }
+      });
+    }
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Customize Your ${widget.topic} Challenge'),
-      ),
-      body: _isLoading
-          ? const Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Generating challenge...'),
-                ],
-              ),
-            )
-          : FadeTransition(
-              opacity: _fadeAnimation,
-              child: SlideTransition(
-                position: _slideAnimation,
-                child: SingleChildScrollView(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (preferencesAsync is AsyncData &&
-                            preferencesAsync.value != null &&
-                            !_initialPrefsLoaded) ...[
-                          Builder(builder: (context) {
-                            final prefsData = preferencesAsync.value!;
-                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                              if (mounted) {
-                                setState(() {
-                                  _selectedQuestionCount =
-                                      prefsData['default_num_questions']
-                                              as int? ??
-                                          5;
-                                  _selectedTimePerQuestion =
-                                      prefsData['default_time_per_question_sec']
-                                              as int? ??
-                                          60;
-                                  _timedMode = prefsData['timed_mode_enabled']
-                                          as bool? ??
-                                      false;
-                                  _selectedDifficulty =
-                                      prefsData['default_difficulty']
-                                              as String? ??
-                                          'Medium';
-                                  final List<String> allowedTypes =
-                                      List<String>.from(
-                                          prefsData['allowed_challenge_types']
-                                                  as List<dynamic>? ??
-                                              ['quiz']);
-                                  _includeMcqs = allowedTypes.contains('quiz');
-                                  _includeInput =
-                                      allowedTypes.contains('input');
-                                  _includeFillBlank =
-                                      allowedTypes.contains('fill_blank');
-                                  _includeCodeChallenges =
-                                      (_isCodingRelated ?? false) &&
-                                          allowedTypes.contains('code');
-                                  _initialPrefsLoaded = true;
-                                });
-                              }
-                            });
-                            return const SizedBox.shrink();
-                          })
-                        ],
-                        if (preferencesAsync is AsyncLoading &&
-                            !_initialPrefsLoaded) ...[
-                          const Center(
-                              child: Padding(
-                                  padding: EdgeInsets.all(16.0),
-                                  child: CircularProgressIndicator())),
-                        ],
-                        if (preferencesAsync is AsyncError) ...[
-                          Center(
-                              child: Text(
-                                  "Error loading defaults: ${preferencesAsync.error}")),
-                        ],
-                        Text('Number of Questions: $_selectedQuestionCount'),
-                        Slider(
-                          value: _selectedQuestionCount.toDouble(),
-                          min: 3,
-                          max: 50,
-                          divisions: 47,
-                          label: _selectedQuestionCount.toString(),
-                          onChanged: (value) {
-                            setState(() {
-                              _selectedQuestionCount = value.round();
-                            });
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                            'Time per Question (seconds): $_selectedTimePerQuestion'),
-                        Slider(
-                          value: _selectedTimePerQuestion.toDouble(),
-                          min: 10,
-                          max: 240,
-                          divisions: 23,
-                          label: _selectedTimePerQuestion.toString(),
-                          onChanged: (value) {
-                            setState(() {
-                              _selectedTimePerQuestion = value.round();
-                            });
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        Text('Difficulty:'),
-                        Row(
-                          children: [
-                            ChoiceChip(
-                              label: const Text('Easy'),
-                              selected: _selectedDifficulty == 'Easy',
-                              onSelected: (selected) {
-                                if (selected) {
-                                  setState(() => _selectedDifficulty = 'Easy');
+        appBar: AppBar(
+          title: Text(showQuickStartTitle
+              ? 'Starting ${widget.topic} quiz...'
+              : 'Customize Your ${widget.topic} Challenge'),
+        ),
+        body: showLoading
+            ? Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const CircularProgressIndicator(),
+                    const SizedBox(height: 16),
+                    Text(showQuickStartTitle
+                        ? 'Starting your quiz...'
+                        : 'Generating challenge...'),
+                  ],
+                ),
+              )
+            : FadeTransition(
+                opacity: _fadeAnimation,
+                child: SlideTransition(
+                  position: _slideAnimation,
+                  child: SingleChildScrollView(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (preferencesAsync is AsyncData &&
+                              preferencesAsync.value != null &&
+                              !_initialPrefsLoaded) ...[
+                            Builder(builder: (context) {
+                              final prefsData = preferencesAsync.value!;
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                if (mounted) {
+                                  setState(() {
+                                    _selectedQuestionCount =
+                                        prefsData['defaultNumQuestions'] is num
+                                            ? (prefsData['defaultNumQuestions']
+                                                    as num)
+                                                .toInt()
+                                            : 5;
+                                    _selectedTimePerQuestion = prefsData[
+                                            'defaultTimePerQuestionSec'] is num
+                                        ? (prefsData[
+                                                    'defaultTimePerQuestionSec']
+                                                as num)
+                                            .toInt()
+                                        : 60;
+                                    _timedMode = prefsData['timedModeEnabled']
+                                            as bool? ??
+                                        false;
+                                    _selectedDifficulty =
+                                        prefsData['defaultDifficulty']
+                                                as String? ??
+                                            'Medium';
+                                    _quickStartEnabled =
+                                        prefsData['quickStartEnabled']
+                                                as bool? ??
+                                            true;
+                                    final List<String> allowedTypes =
+                                        convexStringList(
+                                            prefsData['allowedChallengeTypes'],
+                                            ['quiz']);
+                                    _includeMcqs =
+                                        allowedTypes.contains('quiz');
+                                    _includeInput =
+                                        allowedTypes.contains('input');
+                                    _includeFillBlank =
+                                        allowedTypes.contains('fill_blank');
+                                    _includeCodeChallenges =
+                                        (_isCodingRelated ?? false) &&
+                                            allowedTypes.contains('code');
+                                    _initialPrefsLoaded = true;
+                                  });
                                 }
-                              },
-                            ),
-                            const SizedBox(width: 8),
-                            ChoiceChip(
-                              label: const Text('Medium'),
-                              selected: _selectedDifficulty == 'Medium',
-                              onSelected: (selected) {
-                                if (selected) {
-                                  setState(
-                                      () => _selectedDifficulty = 'Medium');
-                                }
-                              },
-                            ),
-                            const SizedBox(width: 8),
-                            ChoiceChip(
-                              label: const Text('Hard'),
-                              selected: _selectedDifficulty == 'Hard',
-                              onSelected: (selected) {
-                                if (selected) {
-                                  setState(() => _selectedDifficulty = 'Hard');
-                                }
-                              },
-                            ),
+                              });
+                              return const SizedBox.shrink();
+                            })
                           ],
-                        ),
-                        const SizedBox(height: 16),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Question Types'),
-                            const SizedBox(height: 12),
-                            Wrap(
-                              spacing: 16,
-                              runSpacing: 8,
-                              crossAxisAlignment: WrapCrossAlignment.center,
+                          if (preferencesAsync is AsyncLoading &&
+                              !_initialPrefsLoaded) ...[
+                            const Center(
+                                child: Padding(
+                                    padding: EdgeInsets.all(16.0),
+                                    child: CircularProgressIndicator())),
+                          ],
+                          if (preferencesAsync is AsyncError) ...[
+                            Center(
+                                child: Text(
+                                    "Error loading defaults: ${preferencesAsync.error}")),
+                          ],
+                          Text('Number of Questions: $_selectedQuestionCount'),
+                          Slider(
+                            value: _selectedQuestionCount.toDouble(),
+                            min: 3,
+                            max: 50,
+                            divisions: 47,
+                            label: _selectedQuestionCount.toString(),
+                            onChanged: (value) {
+                              setState(() {
+                                _selectedQuestionCount = value.round();
+                              });
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                              'Time per Question (seconds): $_selectedTimePerQuestion'),
+                          Slider(
+                            value: _selectedTimePerQuestion.toDouble(),
+                            min: 10,
+                            max: 240,
+                            divisions: 23,
+                            label: _selectedTimePerQuestion.toString(),
+                            onChanged: (value) {
+                              setState(() {
+                                _selectedTimePerQuestion = value.round();
+                              });
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          Text('Difficulty:'),
+                          Row(
+                            children: [
+                              ChoiceChip(
+                                label: const Text('Easy'),
+                                selected: _selectedDifficulty == 'Easy',
+                                onSelected: (selected) {
+                                  if (selected) {
+                                    setState(
+                                        () => _selectedDifficulty = 'Easy');
+                                  }
+                                },
+                              ),
+                              const SizedBox(width: 8),
+                              ChoiceChip(
+                                label: const Text('Medium'),
+                                selected: _selectedDifficulty == 'Medium',
+                                onSelected: (selected) {
+                                  if (selected) {
+                                    setState(
+                                        () => _selectedDifficulty = 'Medium');
+                                  }
+                                },
+                              ),
+                              const SizedBox(width: 8),
+                              ChoiceChip(
+                                label: const Text('Hard'),
+                                selected: _selectedDifficulty == 'Hard',
+                                onSelected: (selected) {
+                                  if (selected) {
+                                    setState(
+                                        () => _selectedDifficulty = 'Hard');
+                                  }
+                                },
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Question Types'),
+                              const SizedBox(height: 12),
+                              Wrap(
+                                spacing: 16,
+                                runSpacing: 0,
+                                children: [
+                                  if (_isCodingRelated == true)
+                                    SizedBox(
+                                      width: 160,
+                                      child: CheckboxListTile(
+                                        contentPadding: EdgeInsets.zero,
+                                        dense: true,
+                                        title: const Text('Code'),
+                                        value: _includeCodeChallenges,
+                                        onChanged: (value) {
+                                          setState(() {
+                                            _includeCodeChallenges =
+                                                value ?? false;
+                                          });
+                                        },
+                                      ),
+                                    ),
+                                  SizedBox(
+                                    width: 160,
+                                    child: CheckboxListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      dense: true,
+                                      title: const Text('Multiple Choice'),
+                                      value: _includeMcqs,
+                                      onChanged: (value) {
+                                        setState(() {
+                                          _includeMcqs = value ?? false;
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                  SizedBox(
+                                    width: 160,
+                                    child: CheckboxListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      dense: true,
+                                      title: const Text('Input'),
+                                      value: _includeInput,
+                                      onChanged: (value) {
+                                        setState(() {
+                                          _includeInput = value ?? false;
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                  SizedBox(
+                                    width: 160,
+                                    child: CheckboxListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      dense: true,
+                                      title: const Text('Fill in Blank'),
+                                      value: _includeFillBlank,
+                                      onChanged: (value) {
+                                        setState(() {
+                                          _includeFillBlank = value ?? false;
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          if (!validTypeSelected)
+                            Padding(
+                              padding:
+                                  const EdgeInsets.only(top: 8.0, bottom: 8.0),
+                              child: Text(
+                                'At least one question type must be selected.',
+                                style: TextStyle(color: Colors.red[700]),
+                              ),
+                            ),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Checkbox(
+                                value: _selectedTotalTimeLimit != null,
+                                onChanged: (checked) {
+                                  setState(() {
+                                    _selectedTotalTimeLimit = checked == true
+                                        ? _selectedTimePerQuestion *
+                                            _selectedQuestionCount
+                                        : null;
+                                  });
+                                },
+                              ),
+                              const Text('Set total quiz time limit'),
+                            ],
+                          ),
+                          if (_selectedTotalTimeLimit != null)
+                            Row(
                               children: [
-                                if (_isCodingRelated == true) ...[
-                                  Checkbox(
-                                    value: _includeCodeChallenges,
+                                Expanded(
+                                  child: Slider(
+                                    value: (_selectedTotalTimeLimit ??
+                                            (_selectedTimePerQuestion *
+                                                _selectedQuestionCount))
+                                        .toDouble(),
+                                    min: 30,
+                                    max: max(
+                                        3600,
+                                        (_selectedTimePerQuestion *
+                                                    _selectedQuestionCount)
+                                                .toDouble() +
+                                            600),
+                                    divisions: max(
+                                        1,
+                                        (max(
+                                                    3600,
+                                                    (_selectedTimePerQuestion *
+                                                                _selectedQuestionCount)
+                                                            .toDouble() +
+                                                        600) -
+                                                30) ~/
+                                            10),
+                                    label: _selectedTotalTimeLimit != null
+                                        ? '${(_selectedTotalTimeLimit! / 60).floor()}m ${(_selectedTotalTimeLimit! % 60)}s'
+                                        : 'auto',
                                     onChanged: (value) {
                                       setState(() {
-                                        _includeCodeChallenges = value ?? false;
+                                        _selectedTotalTimeLimit = value.round();
                                       });
                                     },
                                   ),
-                                  const Text('Code Challenges'),
-                                ],
-                                const SizedBox(width: 16),
-                                Checkbox(
-                                  value: _includeMcqs,
-                                  onChanged: (value) {
-                                    setState(() {
-                                      _includeMcqs = value ?? false;
-                                    });
-                                  },
                                 ),
-                                const Text('Multiple Choice (MCQ)'),
-                                const SizedBox(width: 16),
-                                Checkbox(
-                                  value: _includeInput,
-                                  onChanged: (value) {
-                                    setState(() {
-                                      _includeInput = value ?? false;
-                                    });
-                                  },
-                                ),
-                                const Text('Input Questions'),
-                                const SizedBox(width: 16),
-                                Checkbox(
-                                  value: _includeFillBlank,
-                                  onChanged: (value) {
-                                    setState(() {
-                                      _includeFillBlank = value ?? false;
-                                    });
-                                  },
-                                ),
-                                const Text('Fill in the Blank'),
+                                Text(
+                                    '${(_selectedTotalTimeLimit! / 60).floor()}m ${(_selectedTotalTimeLimit! % 60)}s'),
                               ],
                             ),
-                          ],
-                        ),
-                        if (!validTypeSelected)
-                          Padding(
-                            padding:
-                                const EdgeInsets.only(top: 8.0, bottom: 8.0),
-                            child: Text(
-                              'At least one question type must be selected.',
-                              style: TextStyle(color: Colors.red[700]),
-                            ),
-                          ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Checkbox(
-                              value: _selectedTotalTimeLimit != null,
-                              onChanged: (checked) {
-                                setState(() {
-                                  _selectedTotalTimeLimit = checked == true
-                                      ? _selectedTimePerQuestion *
-                                          _selectedQuestionCount
-                                      : null;
-                                });
-                              },
-                            ),
-                            const Text('Set total quiz time limit'),
-                          ],
-                        ),
-                        if (_selectedTotalTimeLimit != null)
+                          const SizedBox(height: 32),
                           Row(
                             children: [
-                              Expanded(
-                                child: Slider(
-                                  value: (_selectedTotalTimeLimit ??
-                                          (_selectedTimePerQuestion *
-                                              _selectedQuestionCount))
-                                      .toDouble(),
-                                  min: 30,
-                                  max: max(
-                                      3600,
-                                      (_selectedTimePerQuestion *
-                                                  _selectedQuestionCount)
-                                              .toDouble() +
-                                          600),
-                                  divisions: max(
-                                      1,
-                                      (max(
-                                                  3600,
-                                                  (_selectedTimePerQuestion *
-                                                              _selectedQuestionCount)
-                                                          .toDouble() +
-                                                      600) -
-                                              30) ~/
-                                          10),
-                                  label: _selectedTotalTimeLimit != null
-                                      ? '${(_selectedTotalTimeLimit! / 60).floor()}m ${(_selectedTotalTimeLimit! % 60)}s'
-                                      : 'auto',
-                                  onChanged: (value) {
-                                    setState(() {
-                                      _selectedTotalTimeLimit = value.round();
-                                    });
-                                  },
-                                ),
+                              const Text('Timed Mode'),
+                              const Spacer(),
+                              Switch(
+                                value: _timedMode,
+                                onChanged: (value) {
+                                  setState(() {
+                                    _timedMode = value;
+                                  });
+                                },
                               ),
-                              Text(
-                                  '${(_selectedTotalTimeLimit! / 60).floor()}m ${(_selectedTotalTimeLimit! % 60)}s'),
                             ],
                           ),
-                        const SizedBox(height: 32),
-                        Row(
-                          children: [
-                            const Text('Timed Mode'),
-                            const Spacer(),
-                            Switch(
-                              value: _timedMode,
-                              onChanged: (value) {
-                                setState(() {
-                                  _timedMode = value;
-                                });
-                              },
+                          const SizedBox(height: 32),
+                          Center(
+                            child: ElevatedButton(
+                              onPressed: _isLoading || !validTypeSelected
+                                  ? null
+                                  : _generateQuiz,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor:
+                                    Theme.of(context).colorScheme.primary,
+                                foregroundColor:
+                                    Theme.of(context).colorScheme.onPrimary,
+                                padding: const EdgeInsets.symmetric(
+                                    vertical: 20, horizontal: 24),
+                              ),
+                              child: const Text('Start Challenge'),
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 32),
-                        Center(
-                          child: ElevatedButton(
-                            onPressed: _isLoading || !validTypeSelected
-                                ? null
-                                : _generateQuiz,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor:
-                                  Theme.of(context).colorScheme.primary,
-                              foregroundColor:
-                                  Theme.of(context).colorScheme.onPrimary,
-                              padding: const EdgeInsets.symmetric(
-                                  vertical: 20, horizontal: 24),
-                            ),
-                            child: const Text('Start Challenge'),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ));
+              ));
   }
 }

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:neurobits/core/widgets/latex_text.dart';
 import 'package:neurobits/services/ai_service.dart';
+import 'package:neurobits/features/challenges/screens/quiz_screen.dart';
 
 class QuizReviewScreen extends StatefulWidget {
   final List<Map<String, dynamic>> questions;
@@ -27,6 +29,57 @@ class _QuizReviewScreenState extends State<QuizReviewScreen> {
     _loading = List<bool>.filled(widget.questions.length, false);
   }
 
+  String _optionText(dynamic option) {
+    if (option is Map && option['text'] != null) {
+      return option['text'].toString();
+    }
+    return option?.toString() ?? '';
+  }
+
+  String _formatAnswer(Map<String, dynamic> q, dynamic rawAnswer) {
+    if (rawAnswer == null) return '';
+    if (rawAnswer is String) return rawAnswer;
+    final options = q['options'];
+    if (rawAnswer is num && options is List) {
+      final index = rawAnswer.toInt();
+      if (index >= 0 && index < options.length) {
+        return _optionText(options[index]);
+      }
+    }
+    if (rawAnswer is Map && rawAnswer['text'] != null) {
+      return rawAnswer['text'].toString();
+    }
+    return rawAnswer.toString();
+  }
+
+  dynamic _resolveUserAnswer(Map<String, dynamic> q, int index) {
+    dynamic answer = index < widget.selectedAnswers.length
+        ? widget.selectedAnswers[index]
+        : null;
+    if ((answer == null || (answer is String && answer.trim().isEmpty)) &&
+        q['userAnswer'] != null) {
+      answer = q['userAnswer'];
+    }
+    return answer;
+  }
+
+  String _formatCorrectAnswer(Map<String, dynamic> q) {
+    final options = q['options'];
+    if (q['solution'] is num && options is List) {
+      final index = (q['solution'] as num).toInt();
+      if (index >= 0 && index < options.length) {
+        return _optionText(options[index]);
+      }
+    }
+    if (q['solution'] != null) {
+      return _optionText(q['solution']);
+    }
+    if (q['answer'] != null) {
+      return _optionText(q['answer']);
+    }
+    return '';
+  }
+
   Future<void> _fetchExplanation(int i) async {
     setState(() => _loading[i] = true);
     try {
@@ -44,8 +97,7 @@ class _QuizReviewScreenState extends State<QuizReviewScreen> {
         });
         return;
       }
-      final explanation =
-          await AIService.explainAnswer(questionText, solution);
+      final explanation = await AIService.explainAnswer(questionText, solution);
       if (explanation.trim().isEmpty ||
           explanation.toLowerCase().contains('error')) {
         setState(() {
@@ -70,6 +122,48 @@ class _QuizReviewScreenState extends State<QuizReviewScreen> {
     }
   }
 
+  Widget _buildExplanationText(BuildContext context, String text) {
+    final theme = Theme.of(context);
+    final lines = text
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .toList();
+    if (lines.isEmpty) {
+      return LaTeXText(text, style: theme.textTheme.bodyMedium);
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: lines.map((line) {
+        final parts = line.split(':');
+        if (parts.length < 2) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: LaTeXText(line, style: theme.textTheme.bodyMedium),
+          );
+        }
+        final label = parts.first.trim();
+        final body = parts.skip(1).join(':').trim();
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '$label:',
+                style: theme.textTheme.bodyMedium
+                    ?.copyWith(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 2),
+              LaTeXText(body, style: theme.textTheme.bodyMedium),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -83,20 +177,12 @@ class _QuizReviewScreenState extends State<QuizReviewScreen> {
         separatorBuilder: (_, __) => const SizedBox(height: 18),
         itemBuilder: (context, i) {
           final q = widget.questions[i];
-          final userAnswer = widget.selectedAnswers[i]?.toString() ?? '';
-          String correctAnswer;
-          if (q['solution'] is int && q['options'] != null) {
-            final opts = List<dynamic>.from(q['options']);
-            correctAnswer = opts[q['solution'] as int].toString();
-          } else if (q['solution'] != null) {
-            correctAnswer = q['solution'].toString();
-          } else if (q['answer'] != null) {
-            correctAnswer = q['answer'].toString();
-          } else {
-            correctAnswer = '';
-          }
-          final isCorrect = userAnswer.trim().toLowerCase() ==
-              correctAnswer.trim().toLowerCase();
+          final rawAnswer = _resolveUserAnswer(q, i);
+          final userAnswer = _formatAnswer(q, rawAnswer);
+          final displayUserAnswer =
+              userAnswer.trim().isEmpty ? 'No answer' : userAnswer;
+          final correctAnswer = _formatCorrectAnswer(q);
+          final isCorrect = QuizReview.isAnswerCorrect(q, rawAnswer);
           return Card(
             elevation: 2,
             shape:
@@ -106,31 +192,62 @@ class _QuizReviewScreenState extends State<QuizReviewScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Q${i + 1}: ${q['question'] ?? ''}',
+                  Text('Q${i + 1}:',
                       style: theme.textTheme.titleMedium
                           ?.copyWith(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  LaTeXText(
+                    q['question']?.toString() ?? '',
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
                   const SizedBox(height: 8),
-                  Text('Your Answer: $userAnswer',
-                      style: TextStyle(
-                          color: isCorrect ? Colors.green : Colors.red,
-                          fontWeight: FontWeight.w600)),
+                  Text(
+                    'Your Answer:',
+                    style: TextStyle(
+                        color: isCorrect ? Colors.green : Colors.red,
+                        fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 2),
+                  LaTeXText(
+                    displayUserAnswer,
+                    style: TextStyle(
+                        color: isCorrect ? Colors.green : Colors.red,
+                        fontWeight: FontWeight.w600),
+                  ),
                   const SizedBox(height: 4),
                   if (!isCorrect)
-                    Text('Correct Answer: $correctAnswer',
-                        style: const TextStyle(
-                            color: Colors.green, fontWeight: FontWeight.w600)),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Correct Answer:',
+                            style: TextStyle(
+                                color: Colors.green,
+                                fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 2),
+                        LaTeXText(
+                          correctAnswer,
+                          style: const TextStyle(
+                              color: Colors.green, fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
                   if (isCorrect)
                     const Text('Correct!',
                         style: TextStyle(
                             color: Colors.green, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 10),
-                  ElevatedButton.icon(
+                  OutlinedButton.icon(
                     onPressed: _loading[i] ? null : () => _fetchExplanation(i),
-                    icon: const Icon(Icons.lightbulb),
+                    icon: const Icon(Icons.lightbulb_outline),
                     label: const Text('Explain'),
-                    style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.grey,
-                        foregroundColor: Colors.white),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: theme.colorScheme.primary,
+                      side: BorderSide(
+                          color: theme.colorScheme.primary.withOpacity(0.4)),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 10),
+                    ),
                   ),
                   if (_loading[i])
                     const Padding(
@@ -144,9 +261,10 @@ class _QuizReviewScreenState extends State<QuizReviewScreen> {
                         color: Colors.grey[900],
                         child: Padding(
                           padding: const EdgeInsets.all(12.0),
-                          child: Text(_explanations[i]!,
-                              style: const TextStyle(
-                                  fontSize: 15, color: Colors.white)),
+                          child: _buildExplanationText(
+                            context,
+                            _explanations[i]!,
+                          ),
                         ),
                       ),
                     ),

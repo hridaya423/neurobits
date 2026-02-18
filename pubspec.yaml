@@ -31,7 +31,9 @@ dependencies:
   flutter:
     sdk: flutter
   intl: ^0.19.0 # Add intl for formatting
-  supabase_flutter: ^1.10.4
+  firebase_core: ^3.12.1       # Firebase core
+  firebase_auth: ^5.5.1        # Firebase authentication
+  convex_dart: ^0.5.0          # Convex backend client
   flutter_riverpod: ^2.5.1  # For state management
   flutter_hooks: ^0.20.5
   flutter_dotenv: ^5.1.0
@@ -47,8 +49,6 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  shared_preferences: ^2.5.2
-  uuid: ^4.5.1
 
 dev_dependencies:
   flutter_test:
@@ -60,6 +60,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
+  convex_dart_cli: ^0.5.0     # Convex Dart code generator
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -69,7 +70,6 @@ flutter:
   assets:
     - assets/share_congrats.png
     - assets/neurobiticon.png
-    - .env
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
@@ -106,7 +106,3 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
-
-# Override transitive sign_in_with_apple plugin to latest embedding V2 version
-dependency_overrides:
-  sign_in_with_apple: ^6.0.0

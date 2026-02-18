@@ -1,58 +1,110 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:neurobits/services/supabase.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:neurobits/services/auth_service.dart';
+import 'package:neurobits/services/convex_client_service.dart';
 
-class LoginScreen extends ConsumerStatefulWidget {
-  const LoginScreen({super.key});
+class LoginScreen extends StatefulWidget {
+  final bool initialSignUp;
+  const LoginScreen({super.key, this.initialSignUp = false});
+
   @override
-  ConsumerState<LoginScreen> createState() => _LoginScreenState();
+  State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends ConsumerState<LoginScreen> {
-  final _formKey = GlobalKey<FormState>();
+class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+
   bool _isLoading = false;
-  String _getErrorMessage(dynamic error) {
-    if (error is AuthException) {
-      switch (error.message) {
-        case 'Invalid login credentials':
-          return 'Invalid email or password. Please try again.';
-        case 'Email not confirmed':
-          return 'Please verify your email address before logging in.';
-        case 'Too many requests':
-          return 'Too many login attempts. Please try again later.';
-        default:
-          return error.message;
-      }
-    }
-    return 'An unexpected error occurred. Please try again.';
+  late bool _isSignUp;
+  bool _obscurePassword = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _isSignUp = widget.initialSignUp;
   }
 
-  Future<void> _login() async {
-    if (_isLoading) return;
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
 
+  String _firebaseAuthErrorMessage(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'user-not-found':
+        return 'No account found with this email.';
+      case 'wrong-password':
+        return 'Incorrect password.';
+      case 'invalid-email':
+        return 'Please enter a valid email address.';
+      case 'email-already-in-use':
+        return 'An account already exists with this email.';
+      case 'weak-password':
+        return 'Password is too weak. Use at least 6 characters.';
+      case 'user-disabled':
+        return 'This account has been disabled.';
+      case 'too-many-requests':
+        return 'Too many attempts. Please try again later.';
+      case 'invalid-credential':
+        return 'Invalid email or password.';
+      default:
+        return e.message ?? 'Authentication failed. Please try again.';
+    }
+  }
+
+  Future<void> _handleSubmit() async {
+    if (_isLoading) return;
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
 
     try {
-      // Normalize email to lowercase before login
-      await SupabaseService.signIn(
-        _emailController.text.trim().toLowerCase(),
-        _passwordController.text,
-      );
+      if (_isSignUp) {
+        await AuthService.instance.signUp(
+          email: _emailController.text.trim(),
+          password: _passwordController.text,
+        );
+      } else {
+        await AuthService.instance.signIn(
+          email: _emailController.text.trim(),
+          password: _passwordController.text,
+        );
+      }
+
+      final idToken = await AuthService.instance.getIdToken();
+      if (idToken != null) {
+        await ConvexClientService.instance.setAuthToken(idToken);
+        try {
+          await ConvexClientService.instance
+              .mutation(name: 'users:ensureCurrent', args: {});
+        } catch (e) {
+          debugPrint('Warning: ensureCurrent failed after auth: $e');
+        }
+      }
 
       if (mounted) {
         context.go('/');
+      }
+    } on FirebaseAuthException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_firebaseAuthErrorMessage(e)),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(_getErrorMessage(e)),
+            content: Text('An error occurred: ${e.toString()}'),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 3),
           ),
@@ -65,99 +117,268 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
-  @override
-  void dispose() {
-    _emailController.dispose();
-    _passwordController.dispose();
-    super.dispose();
+  Future<void> _handleForgotPassword() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Enter your email address first.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    try {
+      await AuthService.instance.sendPasswordResetEmail(email: email);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Password reset email sent. Check your inbox.'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    } on FirebaseAuthException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_firebaseAuthErrorMessage(e)),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final brandPurple = Theme.of(context).colorScheme.primary;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Login to Neurobits'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => context.go('/landing'),
+        ),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Form(
-          key: _formKey,
+      body: SafeArea(
+        child: Center(
           child: SingleChildScrollView(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SizedBox(height: MediaQuery.of(context).size.height * 0.1),
-              const Text(
-                'Welcome Back!',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
+            child: Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Hero(
+                    tag: 'app_logo',
+                    child: Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white,
+                        boxShadow: [
+                          BoxShadow(
+                            color: isDark
+                                ? Colors.black26
+                                : brandPurple.withOpacity(0.18),
+                            blurRadius: 18,
+                            spreadRadius: 2,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      padding: const EdgeInsets.all(20),
+                      child: Image.asset(
+                        'assets/neurobiticon.png',
+                        width: 60,
+                        height: 60,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                  Text(
+                    _isSignUp ? 'Create Account' : 'Welcome Back',
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : brandPurple,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _isSignUp
+                        ? 'Sign up to start training your brain'
+                        : 'Log in to continue your journey',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: isDark ? Colors.white70 : const Color(0xFF3A3A3A),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  Form(
+                    key: _formKey,
+                    child: Column(
+                      children: [
+                        TextFormField(
+                          controller: _emailController,
+                          keyboardType: TextInputType.emailAddress,
+                          textInputAction: TextInputAction.next,
+                          autocorrect: false,
+                          decoration: InputDecoration(
+                            labelText: 'Email',
+                            prefixIcon: const Icon(Icons.email_outlined),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              borderSide: BorderSide(
+                                color: isDark
+                                    ? Colors.white24
+                                    : Colors.grey.shade300,
+                              ),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              borderSide:
+                                  BorderSide(color: brandPurple, width: 2),
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Please enter your email';
+                            }
+                            if (!value.contains('@') || !value.contains('.')) {
+                              return 'Please enter a valid email';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _passwordController,
+                          obscureText: _obscurePassword,
+                          textInputAction: TextInputAction.done,
+                          onFieldSubmitted: (_) => _handleSubmit(),
+                          decoration: InputDecoration(
+                            labelText: 'Password',
+                            prefixIcon: const Icon(Icons.lock_outlined),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscurePassword
+                                    ? Icons.visibility_off
+                                    : Icons.visibility,
+                              ),
+                              onPressed: () => setState(
+                                  () => _obscurePassword = !_obscurePassword),
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              borderSide: BorderSide(
+                                color: isDark
+                                    ? Colors.white24
+                                    : Colors.grey.shade300,
+                              ),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              borderSide:
+                                  BorderSide(color: brandPurple, width: 2),
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Please enter your password';
+                            }
+                            if (_isSignUp && value.length < 6) {
+                              return 'Password must be at least 6 characters';
+                            }
+                            return null;
+                          },
+                        ),
+                        if (!_isSignUp) ...[
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton(
+                              onPressed: _handleForgotPassword,
+                              child: Text(
+                                'Forgot password?',
+                                style: TextStyle(color: brandPurple),
+                              ),
+                            ),
+                          ),
+                        ] else
+                          const SizedBox(height: 16),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: _isLoading ? null : _handleSubmit,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: brandPurple,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 18),
+                              textStyle: const TextStyle(
+                                  fontSize: 18, fontWeight: FontWeight.w600),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              elevation: 4,
+                            ),
+                            child: _isLoading
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : Text(_isSignUp ? 'Create Account' : 'Log In'),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              _isSignUp
+                                  ? 'Already have an account?'
+                                  : "Don't have an account?",
+                              style: TextStyle(
+                                color: isDark ? Colors.white70 : Colors.black54,
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: _isLoading
+                                  ? null
+                                  : () {
+                                      setState(() => _isSignUp = !_isSignUp);
+                                    },
+                              child: Text(
+                                _isSignUp ? 'Log In' : 'Sign Up',
+                                style: TextStyle(
+                                  color: brandPurple,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 30),
-              TextFormField(
-                controller: _emailController,
-                decoration: const InputDecoration(
-                  labelText: 'Email',
-                  prefixIcon: Icon(Icons.email),
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.emailAddress,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Email is required';
-                  }
-                  if (!RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$').hasMatch(value)) {
-                    return 'Please enter a valid email address';
-                  }
-                  return null;
-                },
-                textInputAction: TextInputAction.next,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _passwordController,
-                decoration: const InputDecoration(
-                  labelText: 'Password',
-                  prefixIcon: Icon(Icons.lock),
-                  border: OutlineInputBorder(),
-                ),
-                obscureText: true,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Password is required';
-                  }
-                if (value.length < 8) {
-                  return 'Password must be at least 8 characters';
-                }
-                  return null;
-                },
-                textInputAction: TextInputAction.done,
-                onFieldSubmitted: (_) => _login(),
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: _isLoading ? null : _login,
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-                child: _isLoading
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Login', style: TextStyle(fontSize: 16)),
-              ),
-              const SizedBox(height: 16),
-              TextButton(
-                onPressed: () => context.push('/auth/forgot-password'),
-                child: const Text('Forgot password?'),
-              ),
-              TextButton(
-                onPressed: () => context.push('/auth/signup'),
-                child: const Text('New user? Create account'),
-              ),
-            ],
             ),
           ),
         ),

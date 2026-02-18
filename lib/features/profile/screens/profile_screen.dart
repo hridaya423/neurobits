@@ -1,11 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:neurobits/core/providers.dart' hide userPreferencesProvider;
-import 'package:neurobits/services/supabase.dart';
-import 'package:neurobits/services/badge_service.dart';
+import 'package:neurobits/core/providers.dart';
+import 'package:neurobits/services/convex_client_service.dart';
 import '../widgets/badge_gallery.dart';
-import 'package:neurobits/core/providers.dart'
-    show userProvider, userPreferencesProvider;
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -22,7 +19,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
-
   @override
   void initState() {
     super.initState();
@@ -37,8 +33,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
 
   @override
   Widget build(BuildContext context) {
-    final userAsyncValue = ref.watch(userProvider);
-    final userStatsAsyncValue = ref.watch(userStatsProvider);
     return Scaffold(
       appBar: AppBar(
         title: const Text('Profile'),
@@ -67,6 +61,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
   }
 }
 
+final _userBadgesProvider =
+    FutureProvider<List<Map<String, dynamic>>>((ref) async {
+  final user = ref.watch(userProvider).value;
+  if (user == null) return [];
+  final badgeRepo = ref.read(badgeRepositoryProvider);
+  return await badgeRepo.listMine();
+});
+
 class _ProfileOverviewTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -79,16 +81,17 @@ class _ProfileOverviewTab extends ConsumerWidget {
         }
         return userStatsAsyncValue.when(
           data: (stats) {
-            final points = user['points'] ?? 0;
-            final level = user['level'] ?? 1;
-            final xp = user['xp'] ?? 0;
-            final currentStreak = user['current_streak'] ?? 0;
-            final longestStreak = user['longest_streak'] ?? 0;
-            final xpNeeded = stats['xp_needed'] ?? 100;
-            final challengesAttempted = stats['challenges_attempted'] ?? 0;
-            final challengesSolved = stats['challenges_solved'] ?? 0;
-            final completedQuizzes = stats['completed_quizzes'] ?? 0;
-            final averageAccuracy = stats['average_accuracy'] ?? 0.0;
+            final points = convexInt(user['points']);
+            final level = convexInt(user['level'], 1);
+            final xp = convexInt(user['xp']);
+            final currentStreak = convexInt(user['currentStreak']);
+            final longestStreak = convexInt(user['longestStreak']);
+            const xpPerLevel = 100;
+            final previousLevelXp = (level - 1) * xpPerLevel;
+            final xpIntoLevel =
+                (xp - previousLevelXp).clamp(0, xpPerLevel).toInt();
+            final totalAttempts = convexInt(stats['totalAttempts']);
+            final avgAccuracy = stats['avgAccuracy'] ?? 0.0;
             return SingleChildScrollView(
               child: Center(
                 child: Card(
@@ -131,90 +134,26 @@ class _ProfileOverviewTab extends ConsumerWidget {
                         ),
                         const SizedBox(height: 16),
                         _StreakInfoSection(stats: {
-                          'current_streak': currentStreak,
-                          'longest_streak': longestStreak,
+                          'currentStreak': currentStreak,
+                          'longestStreak': longestStreak,
                         }),
                         const SizedBox(height: 12),
                         LinearProgressIndicator(
-                          value: xpNeeded > 0
-                              ? (xp / xpNeeded).clamp(0.0, 1.0)
+                          value: xpPerLevel > 0
+                              ? (xpIntoLevel / xpPerLevel).clamp(0.0, 1.0)
                               : 0,
                           minHeight: 10,
                           borderRadius: BorderRadius.circular(5),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          xpNeeded > 0
-                              ? '${xp.clamp(0, xpNeeded)} / $xpNeeded XP to next level'
+                          xpPerLevel > 0
+                              ? '$xpIntoLevel / $xpPerLevel XP to next level'
                               : 'Max level reached',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                         const SizedBox(height: 24),
-                        FutureBuilder<List<Map<String, dynamic>>>(
-                          future: BadgeService.getUserBadges(user['id']),
-                          builder: (context, snapshot) {
-                            if (!snapshot.hasData) {
-                              return const Center(
-                                  child: CircularProgressIndicator());
-                            }
-                            final badges = snapshot.data!;
-                            if (badges.isEmpty) {
-                              return Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 12.0),
-                                child: Text('No badges earned yet.',
-                                    style:
-                                        Theme.of(context).textTheme.bodyMedium),
-                              );
-                            }
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                Text('Earned Badges',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleMedium),
-                                const SizedBox(height: 8),
-                                Wrap(
-                                  alignment: WrapAlignment.center,
-                                  spacing: 14,
-                                  runSpacing: 10,
-                                  children: badges
-                                      .map((badge) => Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Text(
-                                                badge['badge']['icon'] ?? '🏅',
-                                                style: const TextStyle(
-                                                    fontSize: 28),
-                                              ),
-                                              Text(
-                                                badge['badge']['name'] ?? '',
-                                                style: Theme.of(context)
-                                                    .textTheme
-                                                    .bodySmall,
-                                              ),
-                                            ],
-                                          ))
-                                      .toList(),
-                                ),
-                                const SizedBox(height: 8),
-                                ElevatedButton.icon(
-                                  onPressed: () {
-                                    Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) => BadgeGalleryScreen(
-                                            userId: user['id']),
-                                      ),
-                                    );
-                                  },
-                                  icon: const Icon(Icons.emoji_events),
-                                  label: const Text('See All Badges'),
-                                ),
-                              ],
-                            );
-                          },
-                        ),
+                        _BadgesSection(),
                         const SizedBox(height: 24),
                         SingleChildScrollView(
                           scrollDirection: Axis.horizontal,
@@ -229,21 +168,16 @@ class _ProfileOverviewTab extends ConsumerWidget {
                               ),
                               _ProfileStatCard(
                                 icon: Icons.check_circle,
-                                label: 'Solved',
-                                value: challengesSolved,
+                                label: 'Attempts',
+                                value: totalAttempts,
                                 color: Colors.green,
                               ),
                               _ProfileStatCard(
-                                icon: Icons.quiz,
-                                label: 'Quizzes',
-                                value: completedQuizzes,
+                                icon: Icons.percent,
+                                label: 'Avg Accuracy',
+                                value:
+                                    '${((avgAccuracy as num) * 100).toStringAsFixed(0)}%',
                                 color: Colors.blue,
-                              ),
-                              _ProfileStatCard(
-                                icon: Icons.flag,
-                                label: 'Attempts',
-                                value: challengesAttempted,
-                                color: Colors.redAccent,
                               ),
                             ],
                           ),
@@ -265,7 +199,7 @@ class _ProfileOverviewTab extends ConsumerWidget {
                 ElevatedButton(
                   onPressed: () {
                     Future.microtask(() {
-                      ref.refresh(userStatsProvider);
+                      ref.invalidate(userStatsProvider);
                     });
                   },
                   child: const Text('Retry'),
@@ -285,7 +219,7 @@ class _ProfileOverviewTab extends ConsumerWidget {
             ElevatedButton(
               onPressed: () {
                 Future.microtask(() {
-                  ref.refresh(userProvider);
+                  ref.invalidate(userProvider);
                 });
               },
               child: const Text('Retry'),
@@ -293,6 +227,89 @@ class _ProfileOverviewTab extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _BadgesSection extends ConsumerWidget {
+  IconData _badgeIcon(String? iconKey) {
+    final key = (iconKey ?? '').toLowerCase().trim();
+    switch (key) {
+      case 'star':
+        return Icons.star;
+      case 'trophy':
+        return Icons.emoji_events;
+      case 'medal':
+        return Icons.military_tech;
+      case 'crown':
+        return Icons.workspace_premium;
+      case 'fire':
+      case 'flame':
+        return Icons.local_fire_department;
+      case 'check':
+      case 'check-circle':
+        return Icons.check_circle;
+      case 'zap':
+      case 'bolt':
+        return Icons.bolt;
+      default:
+        return Icons.emoji_events;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final badgesAsync = ref.watch(_userBadgesProvider);
+    return badgesAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (err, _) => Text('Error loading badges: $err'),
+      data: (badges) {
+        if (badges.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12.0),
+            child: Text('No badges earned yet.',
+                style: Theme.of(context).textTheme.bodyMedium),
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Text('Earned Badges',
+                style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 14,
+              runSpacing: 10,
+              children: badges.map((entry) {
+                final badge = entry['badge'] as Map<String, dynamic>? ?? {};
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(_badgeIcon(badge['icon']), size: 28),
+                    Text(
+                      (badge['name'] as String?) ?? '',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 8),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const BadgeGalleryScreen(),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.emoji_events),
+              label: const Text('See All Badges'),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -321,18 +338,20 @@ class StreakGoalSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final userAsyncValue = ref.watch(userProvider);
-    final streakOptions = [1, 3, 5, 7];
+    final streakOptions = [1, 3, 5, 7, 14, 30];
     return userAsyncValue.when(
       data: (user) {
         if (user == null) {
           return const Center(child: Text('Not logged in'));
         }
-        int currentGoal = user['streak_goal'] ?? 1;
+        int currentGoal = convexInt(user['streakGoal'], 1);
         return Card(
           child: ListTile(
             title: Text('Streak Goal'),
             subtitle: DropdownButton<int>(
-              value: currentGoal,
+              value: streakOptions.contains(currentGoal)
+                  ? currentGoal
+                  : streakOptions.first,
               items: streakOptions
                   .map((goal) => DropdownMenuItem(
                         value: goal,
@@ -341,21 +360,28 @@ class StreakGoalSection extends ConsumerWidget {
                   .toList(),
               onChanged: (value) async {
                 if (value != null) {
-                   await SupabaseService.client
-                       .from('users')
-                       .update({'streak_goal': value}).eq('id', user['id']);
-                   ref.refresh(userProvider);
-                   ScaffoldMessenger.of(context).showSnackBar(
-                     SnackBar(
-                         content: Text('Streak goal updated to $value days!')),
-                   );
-                    // Refresh user stats and data
+                  try {
+                    final userRepo = ref.read(userRepositoryProvider);
+                    await userRepo.updateProfile(streakGoal: value);
                     refreshProfileStats(ref);
-
-                 }
-               },
-             ),
-
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                            content:
+                                Text('Streak goal updated to $value days!')),
+                      );
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                            content: Text('Error updating streak goal: $e')),
+                      );
+                    }
+                  }
+                }
+              },
+            ),
           ),
         );
       },
@@ -369,7 +395,7 @@ class StreakGoalSection extends ConsumerWidget {
             ElevatedButton(
               onPressed: () {
                 Future.microtask(() {
-                  ref.refresh(userProvider);
+                  ref.invalidate(userProvider);
                 });
               },
               child: const Text('Retry'),
@@ -392,28 +418,33 @@ class AdaptiveDifficultySection extends ConsumerWidget {
         if (user == null) {
           return const Center(child: Text('Not logged in'));
         }
-        bool adaptiveEnabled = user['adaptive_difficulty'] ?? false;
+        bool adaptiveEnabled = user['adaptiveDifficultyEnabled'] ?? false;
         return Card(
           child: SwitchListTile(
             title: Text('Adaptive Difficulty'),
             subtitle: Text('Enable or adjust adaptive quiz difficulty.'),
             value: adaptiveEnabled,
             onChanged: (value) async {
-               await SupabaseService.client
-                   .from('users')
-                   .update({'adaptive_difficulty': value}).eq('id', user['id']);
-               ref.refresh(userProvider);
-               ScaffoldMessenger.of(context).showSnackBar(
-                 SnackBar(
-                     content: Text(
-                         'Adaptive difficulty ${value ? 'enabled' : 'disabled'}!')),
-               );
-               refreshProfileStats(ref);
-             },
-           ),
-
-
-
+              try {
+                final userRepo = ref.read(userRepositoryProvider);
+                await userRepo.updateSettings(adaptiveDifficultyEnabled: value);
+                refreshProfileStats(ref);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                        content: Text(
+                            'Adaptive difficulty ${value ? 'enabled' : 'disabled'}!')),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error updating setting: $e')),
+                  );
+                }
+              }
+            },
+          ),
         );
       },
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -426,7 +457,7 @@ class AdaptiveDifficultySection extends ConsumerWidget {
             ElevatedButton(
               onPressed: () {
                 Future.microtask(() {
-                  ref.refresh(userProvider);
+                  ref.invalidate(userProvider);
                 });
               },
               child: const Text('Retry'),
@@ -449,8 +480,8 @@ class NotificationSettingsSection extends ConsumerWidget {
         if (user == null) {
           return const Center(child: Text('Not logged in'));
         }
-        bool remindersEnabled = user['reminders_enabled'] ?? false;
-        bool streaksEnabled = user['streak_notifications'] ?? false;
+        bool remindersEnabled = user['remindersEnabled'] ?? false;
+        bool streaksEnabled = user['streakNotifications'] ?? false;
         return Card(
           child: Column(
             children: [
@@ -459,39 +490,51 @@ class NotificationSettingsSection extends ConsumerWidget {
                 subtitle: Text('Enable daily quiz reminders.'),
                 value: remindersEnabled,
                 onChanged: (value) async {
-                   await SupabaseService.client.from('users').update(
-                       {'streak_notifications': value}).eq('id', user['id']);
-                   ref.refresh(userProvider);
-                   ScaffoldMessenger.of(context).showSnackBar(
-                     SnackBar(
-                         content: Text(
-                             'Streak notifications ${value ? 'enabled' : 'disabled'}!')),
-                   );
-                   refreshProfileStats(ref);
-                 },
-               ),
-
-
-
+                  try {
+                    final userRepo = ref.read(userRepositoryProvider);
+                    await userRepo.updateSettings(remindersEnabled: value);
+                    refreshProfileStats(ref);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                            content: Text(
+                                'Reminders ${value ? 'enabled' : 'disabled'}!')),
+                      );
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Error updating setting: $e')),
+                      );
+                    }
+                  }
+                },
+              ),
               SwitchListTile(
                 title: Text('Streak Notifications'),
                 subtitle: Text('Enable notifications for streak milestones.'),
                 value: streaksEnabled,
                 onChanged: (value) async {
-                   await SupabaseService.client.from('users').update(
-                       {'streak_notifications': value}).eq('id', user['id']);
-                   ref.refresh(userProvider);
-                   ScaffoldMessenger.of(context).showSnackBar(
-                     SnackBar(
-                         content: Text(
-                             'Streak notifications ${value ? 'enabled' : 'disabled'}!')),
-                   );
-                    // Refresh user stats and data
+                  try {
+                    final userRepo = ref.read(userRepositoryProvider);
+                    await userRepo.updateSettings(streakNotifications: value);
                     refreshProfileStats(ref);
-
-                 },
-               ),
-
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                            content: Text(
+                                'Streak notifications ${value ? 'enabled' : 'disabled'}!')),
+                      );
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Error updating setting: $e')),
+                      );
+                    }
+                  }
+                },
+              ),
             ],
           ),
         );
@@ -506,7 +549,7 @@ class NotificationSettingsSection extends ConsumerWidget {
             ElevatedButton(
               onPressed: () {
                 Future.microtask(() {
-                  ref.refresh(userProvider);
+                  ref.invalidate(userProvider);
                 });
               },
               child: const Text('Retry'),
@@ -538,23 +581,26 @@ class QuizSettingsSection extends ConsumerWidget {
   final String codeType = 'code';
   final String inputType = 'input';
   final String fillBlankType = 'fill_blank';
-  Future<void> _savePreference(WidgetRef ref, String key, dynamic value) async {
+
+  Future<void> _savePreference(
+      WidgetRef ref, Map<String, dynamic> updates) async {
     final user = ref.read(userProvider).value;
     if (user == null) return;
     try {
-      await SupabaseService.client.from('user_quiz_preferences').upsert({
-        'user_id': user['id'],
-        key: value,
-      }, onConflict: 'user_id');
-      ref.refresh(userPreferencesProvider);
+      final prefRepo = ref.read(preferenceRepositoryProvider);
+      await prefRepo.upsertMine(
+        defaultNumQuestions: convexIntOrNull(updates['defaultNumQuestions']),
+        defaultDifficulty: updates['defaultDifficulty'] as String?,
+        defaultTimePerQuestionSec:
+            convexIntOrNull(updates['defaultTimePerQuestionSec']),
+        timedModeEnabled: updates['timedModeEnabled'] as bool?,
+        allowedChallengeTypes:
+            updates['allowedChallengeTypes'] as List<String>?,
+      );
+      ref.invalidate(userPreferencesProvider);
     } catch (e) {
-      debugPrint("Error saving preference '$key': $e");
+      debugPrint("Error saving preference: $e");
     }
-  }
-
-  Future<void> _saveAllowedChallengeTypes(
-      WidgetRef ref, List<String> types) async {
-    await _savePreference(ref, 'allowed_challenge_types', types);
   }
 
   @override
@@ -566,16 +612,17 @@ class QuizSettingsSection extends ConsumerWidget {
           Center(child: Text('Error loading preferences: $err')),
       data: (prefsData) {
         final int currentQuestionCount =
-            prefsData?['default_num_questions'] as int? ?? 5;
+            convexInt(prefsData?['defaultNumQuestions'], 5);
         final int currentTimePerQuestion =
-            prefsData?['default_time_per_question_sec'] as int? ?? 60;
+            convexInt(prefsData?['defaultTimePerQuestionSec'], 60);
         final String currentDifficulty =
-            prefsData?['default_difficulty'] as String? ?? 'Medium';
+            prefsData?['defaultDifficulty'] as String? ?? 'Medium';
         final bool currentTimedMode =
-            prefsData?['timed_mode_enabled'] as bool? ?? false;
-        final List<String> currentAllowedTypes = List<String>.from(
-            prefsData?['allowed_challenge_types'] as List<dynamic>? ??
-                ['quiz']);
+            prefsData?['timedModeEnabled'] as bool? ?? false;
+        final bool currentQuickStart =
+            prefsData?['quickStartEnabled'] as bool? ?? true;
+        final List<String> currentAllowedTypes =
+            convexStringList(prefsData?['allowedChallengeTypes'], ['quiz']);
         return Card(
           elevation: 2,
           shape:
@@ -608,7 +655,7 @@ class QuizSettingsSection extends ConsumerWidget {
                       .toList(),
                   onChanged: (value) {
                     if (value != null) {
-                      _savePreference(ref, 'default_num_questions', value);
+                      _savePreference(ref, {'defaultNumQuestions': value});
                     }
                   },
                 ),
@@ -627,7 +674,7 @@ class QuizSettingsSection extends ConsumerWidget {
                   onChanged: (value) {
                     if (value != null) {
                       _savePreference(
-                          ref, 'default_time_per_question_sec', value);
+                          ref, {'defaultTimePerQuestionSec': value});
                     }
                   },
                 ),
@@ -644,80 +691,130 @@ class QuizSettingsSection extends ConsumerWidget {
                       .toList(),
                   onChanged: (value) {
                     if (value != null) {
-                      _savePreference(ref, 'default_difficulty', value);
+                      _savePreference(ref, {'defaultDifficulty': value});
                     }
                   },
                 ),
                 const SizedBox(height: 20),
                 Text('Default Question Types Included:',
                     style: Theme.of(context).textTheme.titleSmall),
-                CheckboxListTile(
-                    title: const Text('Multiple Choice (MCQs)'),
-                    value: currentAllowedTypes.contains(quizType),
-                    onChanged: (value) {
-                      if (value == null) return;
-                      final updatedTypes =
-                          List<String>.from(currentAllowedTypes);
-                      if (value) {
-                        updatedTypes.add(quizType);
-                      } else {
-                        updatedTypes.remove(quizType);
-                      }
-                      _saveAllowedChallengeTypes(
-                          ref, updatedTypes.toSet().toList());
-                    }),
-                CheckboxListTile(
-                    title: const Text('Code Challenges'),
-                    value: currentAllowedTypes.contains(codeType),
-                    onChanged: (value) {
-                      if (value == null) return;
-                      final updatedTypes =
-                          List<String>.from(currentAllowedTypes);
-                      if (value) {
-                        updatedTypes.add(codeType);
-                      } else {
-                        updatedTypes.remove(codeType);
-                      }
-                      _saveAllowedChallengeTypes(
-                          ref, updatedTypes.toSet().toList());
-                    }),
-                CheckboxListTile(
-                    title: const Text('Input Questions'),
-                    value: currentAllowedTypes.contains(inputType),
-                    onChanged: (value) {
-                      if (value == null) return;
-                      final updatedTypes =
-                          List<String>.from(currentAllowedTypes);
-                      if (value) {
-                        updatedTypes.add(inputType);
-                      } else {
-                        updatedTypes.remove(inputType);
-                      }
-                      _saveAllowedChallengeTypes(
-                          ref, updatedTypes.toSet().toList());
-                    }),
-                CheckboxListTile(
-                    title: const Text('Fill-in-the-Blank'),
-                    value: currentAllowedTypes.contains(fillBlankType),
-                    onChanged: (value) {
-                      if (value == null) return;
-                      final updatedTypes =
-                          List<String>.from(currentAllowedTypes);
-                      if (value) {
-                        updatedTypes.add(fillBlankType);
-                      } else {
-                        updatedTypes.remove(fillBlankType);
-                      }
-                      _saveAllowedChallengeTypes(
-                          ref, updatedTypes.toSet().toList());
-                    }),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 0,
+                  children: [
+                    SizedBox(
+                      width: 160,
+                      child: CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        title: const Text('Multiple Choice'),
+                        value: currentAllowedTypes.contains(quizType),
+                        onChanged: (value) {
+                          if (value == null) return;
+                          final updatedTypes =
+                              List<String>.from(currentAllowedTypes);
+                          if (value) {
+                            updatedTypes.add(quizType);
+                          } else {
+                            updatedTypes.remove(quizType);
+                          }
+                          _savePreference(ref, {
+                            'allowedChallengeTypes':
+                                updatedTypes.toSet().toList()
+                          });
+                        },
+                      ),
+                    ),
+                    SizedBox(
+                      width: 160,
+                      child: CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        title: const Text('Code Challenges'),
+                        value: currentAllowedTypes.contains(codeType),
+                        onChanged: (value) {
+                          if (value == null) return;
+                          final updatedTypes =
+                              List<String>.from(currentAllowedTypes);
+                          if (value) {
+                            updatedTypes.add(codeType);
+                          } else {
+                            updatedTypes.remove(codeType);
+                          }
+                          _savePreference(ref, {
+                            'allowedChallengeTypes':
+                                updatedTypes.toSet().toList()
+                          });
+                        },
+                      ),
+                    ),
+                    SizedBox(
+                      width: 160,
+                      child: CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        title: const Text('Input Questions'),
+                        value: currentAllowedTypes.contains(inputType),
+                        onChanged: (value) {
+                          if (value == null) return;
+                          final updatedTypes =
+                              List<String>.from(currentAllowedTypes);
+                          if (value) {
+                            updatedTypes.add(inputType);
+                          } else {
+                            updatedTypes.remove(inputType);
+                          }
+                          _savePreference(ref, {
+                            'allowedChallengeTypes':
+                                updatedTypes.toSet().toList()
+                          });
+                        },
+                      ),
+                    ),
+                    SizedBox(
+                      width: 160,
+                      child: CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        title: const Text('Fill-in-the-Blank'),
+                        value: currentAllowedTypes.contains(fillBlankType),
+                        onChanged: (value) {
+                          if (value == null) return;
+                          final updatedTypes =
+                              List<String>.from(currentAllowedTypes);
+                          if (value) {
+                            updatedTypes.add(fillBlankType);
+                          } else {
+                            updatedTypes.remove(fillBlankType);
+                          }
+                          _savePreference(ref, {
+                            'allowedChallengeTypes':
+                                updatedTypes.toSet().toList()
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 16),
+                SwitchListTile(
+                  title: const Text('Quick Start with Defaults'),
+                  subtitle:
+                      const Text('Skip customization and start quizzes faster'),
+                  value: currentQuickStart,
+                  onChanged: (value) {
+                    _savePreference(ref, {'quickStartEnabled': value});
+                  },
+                  secondary: const Icon(Icons.flash_on_outlined),
+                ),
+                const SizedBox(height: 8),
                 SwitchListTile(
                   title: const Text('Default Timed Mode (per question)'),
                   subtitle: const Text('Enable question timers by default'),
                   value: currentTimedMode,
                   onChanged: (value) {
-                    _savePreference(ref, 'timed_mode_enabled', value);
+                    _savePreference(ref, {'timedModeEnabled': value});
                   },
                   secondary: const Icon(Icons.timer_outlined),
                 ),
@@ -774,8 +871,8 @@ class _StreakInfoSection extends StatelessWidget {
   const _StreakInfoSection({required this.stats});
   @override
   Widget build(BuildContext context) {
-    final streak = stats['current_streak'] ?? 0;
-    final longest = stats['longest_streak'] ?? 0;
+    final streak = stats['currentStreak'] ?? 0;
+    final longest = stats['longestStreak'] ?? 0;
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [

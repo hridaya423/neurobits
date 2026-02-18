@@ -36,15 +36,13 @@ jobs:
       - name: Build APK
         run: >
           flutter build apk --release
-          --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }}
-          --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          --dart-define=CONVEX_URL=${{ secrets.CONVEX_URL }}
           --dart-define=OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
 
       - name: Build App Bundle
         run: >
           flutter build appbundle --release
-          --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }}
-          --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          --dart-define=CONVEX_URL=${{ secrets.CONVEX_URL }}
           --dart-define=OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
 
       - name: Get version from tag

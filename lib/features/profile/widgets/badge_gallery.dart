@@ -1,33 +1,70 @@
 import 'package:flutter/material.dart';
-import 'package:neurobits/services/badge_service.dart';
-class BadgeGalleryScreen extends StatefulWidget {
-  final String userId;
-  const BadgeGalleryScreen({super.key, required this.userId});
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:neurobits/core/providers.dart';
+
+class BadgeGalleryScreen extends ConsumerStatefulWidget {
+  const BadgeGalleryScreen({super.key});
   @override
-  State<BadgeGalleryScreen> createState() => _BadgeGalleryScreenState();
+  ConsumerState<BadgeGalleryScreen> createState() => _BadgeGalleryScreenState();
 }
-class _BadgeGalleryScreenState extends State<BadgeGalleryScreen> {
-  late Future<List<Map<String, dynamic>>> _allBadgesFuture;
-  late Future<List<Map<String, dynamic>>> _userBadgesFuture;
+
+class _BadgeGalleryScreenState extends ConsumerState<BadgeGalleryScreen> {
+  late Future<List<List<Map<String, dynamic>>>> _badgesFuture;
+
   @override
   void initState() {
     super.initState();
-    _allBadgesFuture = BadgeService.getAllBadges();
-    _userBadgesFuture = BadgeService.getUserBadges(widget.userId);
+    final badgeRepo = ref.read(badgeRepositoryProvider);
+    _badgesFuture = Future.wait([
+      badgeRepo.listAll(),
+      badgeRepo.listMine(),
+    ]);
   }
+
+  IconData _badgeIcon(String? iconKey) {
+    final key = (iconKey ?? '').toLowerCase().trim();
+    switch (key) {
+      case 'star':
+        return Icons.star;
+      case 'trophy':
+        return Icons.emoji_events;
+      case 'medal':
+        return Icons.military_tech;
+      case 'crown':
+        return Icons.workspace_premium;
+      case 'fire':
+      case 'flame':
+        return Icons.local_fire_department;
+      case 'check':
+      case 'check-circle':
+        return Icons.check_circle;
+      case 'zap':
+      case 'bolt':
+        return Icons.bolt;
+      default:
+        return Icons.emoji_events;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Badge Gallery')),
       body: FutureBuilder<List<List<Map<String, dynamic>>>>(
-        future: Future.wait([_allBadgesFuture, _userBadgesFuture]),
+        future: _badgesFuture,
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
           final allBadges = snapshot.data![0];
           final userBadges = snapshot.data![1];
-          final userBadgeIds = userBadges.map((b) => b['badge_id'].toString()).toSet();
+          final userBadgeIds = userBadges
+              .map((b) {
+                final badge = b['badge'] as Map<String, dynamic>?;
+                return badge?['_id']?.toString();
+              })
+              .where((id) => id != null)
+              .toSet();
           return GridView.builder(
             padding: const EdgeInsets.all(16),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -39,25 +76,49 @@ class _BadgeGalleryScreenState extends State<BadgeGalleryScreen> {
             itemCount: allBadges.length,
             itemBuilder: (context, idx) {
               final badge = allBadges[idx];
-              final earned = userBadgeIds.contains(badge['id'].toString());
+              final earned = userBadgeIds.contains(badge['_id']?.toString());
               return earned
                   ? Card(
                       elevation: 6,
-                      color: Theme.of(context).colorScheme.primary.withOpacity(0.18),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      color: Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withOpacity(0.18),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20)),
                       child: _buildBadgeCardContent(badge, earned, context),
                     )
                   : ColorFiltered(
                       colorFilter: const ColorFilter.matrix(<double>[
-                        0.2126, 0.7152, 0.0722, 0, 0,
-                        0.2126, 0.7152, 0.0722, 0, 0,
-                        0.2126, 0.7152, 0.0722, 0, 0,
-                        0, 0, 0, 1, 0,
+                        0.2126,
+                        0.7152,
+                        0.0722,
+                        0,
+                        0,
+                        0.2126,
+                        0.7152,
+                        0.0722,
+                        0,
+                        0,
+                        0.2126,
+                        0.7152,
+                        0.0722,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        1,
+                        0,
                       ]),
                       child: Card(
                         elevation: 1,
-                        color: Theme.of(context).colorScheme.primary.withOpacity(0.07),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                        color: Theme.of(context)
+                            .colorScheme
+                            .primary
+                            .withOpacity(0.07),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20)),
                         child: _buildBadgeCardContent(badge, earned, context),
                       ),
                     );
@@ -67,21 +128,27 @@ class _BadgeGalleryScreenState extends State<BadgeGalleryScreen> {
       ),
     );
   }
-  Widget _buildBadgeCardContent(Map<String, dynamic> badge, bool earned, BuildContext context) {
+
+  Widget _buildBadgeCardContent(
+      Map<String, dynamic> badge, bool earned, BuildContext context) {
     return InkWell(
       borderRadius: BorderRadius.circular(20),
       onTap: () => showDialog(
         context: context,
         builder: (_) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
           title: Row(
             children: [
-              Text(badge['icon'] ?? '🏅', style: const TextStyle(fontSize: 32)),
+              Icon(_badgeIcon(badge['icon']), size: 32),
               const SizedBox(width: 12),
-              Expanded(child: Text(badge['name'] ?? '', style: Theme.of(context).textTheme.titleLarge)),
+              Expanded(
+                  child: Text(badge['name'] ?? '',
+                      style: Theme.of(context).textTheme.titleLarge)),
             ],
           ),
-          content: Text(badge['description'] ?? '', style: Theme.of(context).textTheme.bodyLarge),
+          content: Text(badge['description'] ?? '',
+              style: Theme.of(context).textTheme.bodyLarge),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
@@ -93,14 +160,14 @@ class _BadgeGalleryScreenState extends State<BadgeGalleryScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(
-            badge['icon'] ?? '🏅',
-            style: const TextStyle(fontSize: 40),
-          ),
+          Icon(_badgeIcon(badge['icon']), size: 40),
           const SizedBox(height: 8),
           Text(
             badge['name'] ?? '',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            style: Theme.of(context)
+                .textTheme
+                .titleMedium
+                ?.copyWith(fontWeight: FontWeight.bold),
             textAlign: TextAlign.center,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
@@ -109,7 +176,10 @@ class _BadgeGalleryScreenState extends State<BadgeGalleryScreen> {
           Expanded(
             child: Text(
               badge['description'] ?? '',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey[800]),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: Colors.grey[800]),
               textAlign: TextAlign.center,
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
@@ -118,7 +188,8 @@ class _BadgeGalleryScreenState extends State<BadgeGalleryScreen> {
           if (earned)
             Padding(
               padding: const EdgeInsets.only(top: 8.0),
-              child: Icon(Icons.check_circle, color: Colors.green[600], size: 22),
+              child:
+                  Icon(Icons.check_circle, color: Colors.green[600], size: 22),
             ),
         ],
       ),

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../services/supabase.dart';
+import '../../core/providers.dart';
 
 class PersonalizationOnboardingScreen extends ConsumerStatefulWidget {
   final VoidCallback onComplete;
@@ -689,21 +689,20 @@ class _PersonalizationOnboardingScreenState
     setState(() => _isLoading = true);
 
     try {
-      final user = SupabaseService.client.auth.currentUser;
-      if (user == null) throw Exception('User not found');
-
-      await SupabaseService.client.from('user_quiz_preferences').upsert({
-        'user_id': user.id,
-        'learning_goal': _learningGoal,
-        'experience_level': _experienceLevel,
-        'learning_style': _learningStyle,
-        'time_commitment_minutes': _timeCommitment,
-        'interested_topics': _interestedTopics,
-        'preferred_question_types': _preferredQuestionTypes,
-        'updated_at': DateTime.now().toIso8601String(),
-      });
-
-      await _createInitialPerformanceData(user.id);
+      final prefRepo = ref.read(preferenceRepositoryProvider);
+      await prefRepo.upsertMine(
+        learningGoal: _learningGoal,
+        experienceLevel: _experienceLevel,
+        learningStyle: _learningStyle,
+        timeCommitmentMinutes: _timeCommitment,
+        interestedTopics: _interestedTopics,
+        preferredQuestionTypes: _preferredQuestionTypes,
+      );
+      ref.invalidate(userPreferencesProvider);
+      ref.invalidate(recommendationsCacheProvider);
+      ref.invalidate(practiceRecommendationsProvider);
+      ref.invalidate(enrichedPracticeProvider);
+      ref.invalidate(suggestedNewTopicsWithReasonsProvider);
 
       widget.onComplete();
     } catch (e) {
@@ -712,57 +711,6 @@ class _PersonalizationOnboardingScreenState
       );
     } finally {
       setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _createInitialPerformanceData(String userId) async {
-    final baseAccuracy = _getInitialAccuracy();
-
-    for (final topic in _interestedTopics) {
-      final existingTopic = await SupabaseService.client
-          .from('topics')
-          .select('id')
-          .eq('name', topic)
-          .maybeSingle();
-
-      String topicId;
-      if (existingTopic != null) {
-        topicId = existingTopic['id'] as String;
-      } else {
-        final newTopic = await SupabaseService.client
-            .from('topics')
-            .insert({'name': topic})
-            .select('id')
-            .single();
-        topicId = newTopic['id'] as String;
-      }
-
-      await SupabaseService.client.from('user_topic_stats').upsert({
-        'user_id': userId,
-        'topic_id': topicId,
-        'attempts': 1,
-        'correct': (baseAccuracy * 5).round(),
-        'total': 5,
-        'avg_accuracy': baseAccuracy,
-        'last_attempted': DateTime.now().toIso8601String(),
-      });
-    }
-  }
-
-  double _getInitialAccuracy() {
-    switch (_experienceLevel) {
-      case 'Complete Beginner':
-        return 0.4;
-      case 'Some Experience':
-        return 0.6;
-      case 'Intermediate':
-        return 0.75;
-      case 'Advanced':
-        return 0.85;
-      case 'Expert':
-        return 0.9;
-      default:
-        return 0.6;
     }
   }
 

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:neurobits/services/supabase.dart';
+import 'package:neurobits/core/providers.dart';
 import 'package:neurobits/services/ai_service.dart';
 import 'package:share_plus/share_plus.dart';
 import 'dart:io';
@@ -15,7 +15,6 @@ class SessionSummaryScreen extends ConsumerStatefulWidget {
   final double accuracy;
   final String topic;
   final String? quizName;
-  final String? userId;
   const SessionSummaryScreen({
     required this.questions,
     required this.selectedAnswers,
@@ -23,7 +22,6 @@ class SessionSummaryScreen extends ConsumerStatefulWidget {
     required this.accuracy,
     required this.topic,
     this.quizName,
-    this.userId,
     super.key,
   });
   @override
@@ -34,6 +32,14 @@ class SessionSummaryScreen extends ConsumerStatefulWidget {
 class _SessionSummaryScreenState extends ConsumerState<SessionSummaryScreen> {
   bool _loading = true;
   String? aiAnalysis;
+  List<String> _wins = [];
+  List<String> _focusNext = [];
+  String? _summaryLine;
+  void _setStateSafe(VoidCallback fn) {
+    if (!mounted) return;
+    setState(fn);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -42,36 +48,61 @@ class _SessionSummaryScreenState extends ConsumerState<SessionSummaryScreen> {
 
   Future<void> _analyzePerformance() async {
     final summary = _buildAISummary();
-    setState(() {
+    _setStateSafe(() {
       _loading = true;
       aiAnalysis = null;
+      _wins = [];
+      _focusNext = [];
+      _summaryLine = null;
     });
     try {
-      final String analysis = await AIService.analyzeQuizPerformance(summary);
-      if (widget.userId != null) {
-        await SupabaseService.saveSessionAnalysis(
-          userId: widget.userId!,
+      if (widget.questions.isEmpty) {
+        _setStateSafe(() {
+          aiAnalysis = 'No questions found for this session.';
+          _loading = false;
+        });
+        return;
+      }
+
+      final String analysis = await AIService.analyzeQuizPerformance(summary)
+          .timeout(const Duration(seconds: 15));
+      try {
+        final sessionRepo = ref.read(sessionAnalysisRepositoryProvider);
+        await sessionRepo.save(
           topic: widget.topic,
           quizName: widget.quizName ?? widget.topic,
           analysis: analysis,
           accuracy: widget.accuracy,
-          totalTime: widget.totalTime,
+          totalTime: widget.totalTime.toDouble(),
         );
+      } catch (e) {
+        debugPrint('Error saving session analysis: $e');
       }
       if (analysis.trim().isNotEmpty) {
-        setState(() {
+        final parsed = _parseAnalysis(analysis);
+        final summaryList = parsed['summary'];
+        _setStateSafe(() {
           aiAnalysis = analysis;
+          _wins = parsed['wins'] ?? [];
+          _focusNext = parsed['focus'] ?? [];
+          _summaryLine = (summaryList != null && summaryList.isNotEmpty)
+              ? summaryList.first
+              : null;
           _loading = false;
         });
       } else {
-        setState(() {
+        _setStateSafe(() {
           aiAnalysis = 'Could not analyze performance. (No analysis returned)';
           _loading = false;
         });
       }
     } catch (e) {
-      setState(() {
+      _setStateSafe(() {
         aiAnalysis = 'Could not analyze performance. (${e.toString()})';
+        _loading = false;
+      });
+    } finally {
+      _setStateSafe(() {
         _loading = false;
       });
     }
@@ -105,6 +136,45 @@ class _SessionSummaryScreenState extends ConsumerState<SessionSummaryScreen> {
     return buffer.toString();
   }
 
+  Map<String, List<String>> _parseAnalysis(String text) {
+    final wins = <String>[];
+    final focus = <String>[];
+    String? summary;
+    String section = '';
+    final lines = text.split('\n');
+    for (final raw in lines) {
+      final line = raw.trim();
+      if (line.isEmpty) continue;
+      final lower = line.toLowerCase();
+      if (lower.startsWith('wins')) {
+        section = 'wins';
+        continue;
+      }
+      if (lower.startsWith('focus')) {
+        section = 'focus';
+        continue;
+      }
+      if (lower.startsWith('summary')) {
+        summary = line.split(':').skip(1).join(':').trim();
+        continue;
+      }
+      if (line.startsWith('-') || line.startsWith('•')) {
+        final item = line.replaceFirst(RegExp(r'^[-•]\s*'), '').trim();
+        if (item.isEmpty) continue;
+        if (section == 'wins') {
+          wins.add(item);
+        } else if (section == 'focus') {
+          focus.add(item);
+        }
+      }
+    }
+    return {
+      'wins': wins,
+      'focus': focus,
+      if (summary != null && summary.isNotEmpty) 'summary': [summary],
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -122,22 +192,38 @@ class _SessionSummaryScreenState extends ConsumerState<SessionSummaryScreen> {
                       style: theme.textTheme.titleLarge
                           ?.copyWith(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 12),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        _summaryBadge(
-                            Icons.check_circle,
-                            'Accuracy',
-                            '${(widget.accuracy * 100).toStringAsFixed(1)}%',
-                            Colors.green),
-                        _summaryBadge(Icons.timer, 'Total Time',
-                            '${widget.totalTime}s', Colors.blue),
-                        _summaryBadge(Icons.question_answer, 'Questions',
-                            '${widget.questions.length}', Colors.deepPurple),
-                      ],
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _summaryTile(
+                          context,
+                          Icons.check_circle,
+                          'Accuracy',
+                          '${(widget.accuracy * 100).toStringAsFixed(1)}%',
+                          Colors.green,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _summaryTile(
+                          context,
+                          Icons.timer,
+                          'Total time',
+                          '${widget.totalTime}s',
+                          Colors.blue,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _summaryTile(
+                          context,
+                          Icons.question_answer,
+                          'Questions',
+                          '${widget.questions.length}',
+                          Colors.deepPurple,
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 24),
                   Text('AI Analysis',
@@ -150,8 +236,29 @@ class _SessionSummaryScreenState extends ConsumerState<SessionSummaryScreen> {
                         borderRadius: BorderRadius.circular(12)),
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),
-                      child: Text(aiAnalysis ?? '',
-                          style: theme.textTheme.bodyLarge),
+                      child: _wins.isNotEmpty || _focusNext.isNotEmpty
+                          ? Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _analysisSection(
+                                    context, 'What you did well', _wins),
+                                const SizedBox(height: 12),
+                                _analysisSection(
+                                    context, 'Focus next', _focusNext),
+                                if (_summaryLine != null &&
+                                    _summaryLine!.isNotEmpty) ...[
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    _summaryLine!,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            )
+                          : Text(aiAnalysis ?? '',
+                              style: theme.textTheme.bodyLarge),
                     ),
                   ),
                   const SizedBox(height: 24),
@@ -207,24 +314,77 @@ class _SessionSummaryScreenState extends ConsumerState<SessionSummaryScreen> {
         'Think you can do better? Try the app and challenge yourself!';
   }
 
-  Widget _summaryBadge(IconData icon, String label, String value, Color color) {
-    return Card(
-      color: color.withOpacity(0.10),
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        child: Column(
-          children: [
-            Icon(icon, color: color, size: 28),
-            const SizedBox(height: 4),
-            Text(value,
-                style: TextStyle(
-                    fontWeight: FontWeight.w600, fontSize: 16, color: color)),
-            Text(label, style: const TextStyle(color: Colors.black54)),
-          ],
-        ),
+  Widget _summaryTile(BuildContext context, IconData icon, String label,
+      String value, Color accent) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withOpacity(0.22),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colorScheme.outline.withOpacity(0.3)),
       ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: accent, size: 18),
+              const SizedBox(width: 6),
+              Text(label,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      )),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(value,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: colorScheme.onSurface,
+                  )),
+        ],
+      ),
+    );
+  }
+
+  Widget _analysisSection(
+      BuildContext context, String title, List<String> items) {
+    if (items.isEmpty) return const SizedBox.shrink();
+    final colorScheme = Theme.of(context).colorScheme;
+    final visible = items.take(3).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                )),
+        const SizedBox(height: 8),
+        Column(
+          children: visible
+              .map((item) => Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('• ',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(color: colorScheme.primary)),
+                        Expanded(
+                          child: Text(
+                            item,
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ))
+              .toList(),
+        ),
+      ],
     );
   }
 }

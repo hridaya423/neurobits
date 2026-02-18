@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers.dart';
-import '../../services/supabase.dart';
 
 class QuizPreferencesOnboardingScreen extends ConsumerStatefulWidget {
   final VoidCallback onComplete;
@@ -19,6 +18,7 @@ class _QuizPreferencesOnboardingScreenState
   String _defaultDifficulty = 'Medium';
   int _defaultTimePerQuestionSec = 60;
   bool _timedModeEnabled = false;
+  bool _quickStartEnabled = true;
   List<String> _allowedChallengeTypes = ['quiz'];
   final List<int> questionCountOptions = [5, 10, 15];
   final List<String> difficultyOptions = ['Easy', 'Medium', 'Hard'];
@@ -47,14 +47,18 @@ class _QuizPreferencesOnboardingScreenState
       final prefs = await ref.read(userPreferencesProvider.future);
       if (prefs != null) {
         setState(() {
-          _defaultNumQuestions = prefs['default_num_questions'] as int? ?? 5;
+          _defaultNumQuestions = prefs['defaultNumQuestions'] is num
+              ? (prefs['defaultNumQuestions'] as num).toInt()
+              : 5;
           _defaultDifficulty =
-              prefs['default_difficulty'] as String? ?? 'Medium';
-          _defaultTimePerQuestionSec =
-              prefs['default_time_per_question_sec'] as int? ?? 60;
-          _timedModeEnabled = prefs['timed_mode_enabled'] as bool? ?? false;
+              prefs['defaultDifficulty'] as String? ?? 'Medium';
+          _defaultTimePerQuestionSec = prefs['defaultTimePerQuestionSec'] is num
+              ? (prefs['defaultTimePerQuestionSec'] as num).toInt()
+              : 60;
+          _timedModeEnabled = prefs['timedModeEnabled'] as bool? ?? false;
+          _quickStartEnabled = prefs['quickStartEnabled'] as bool? ?? true;
           _allowedChallengeTypes =
-              List<String>.from(prefs['allowed_challenge_types'] ?? ['quiz']);
+              List<String>.from(prefs['allowedChallengeTypes'] ?? ['quiz']);
         });
       }
     } catch (e) {
@@ -67,18 +71,17 @@ class _QuizPreferencesOnboardingScreenState
   }
 
   Future<void> _savePreferences() async {
-    final user = ref.read(userProvider).value;
-    if (user == null) return;
     setState(() => _loading = true);
     try {
-      await SupabaseService.client.from('user_quiz_preferences').upsert({
-        'user_id': user['id'],
-        'default_num_questions': _defaultNumQuestions,
-        'default_difficulty': _defaultDifficulty,
-        'default_time_per_question_sec': _defaultTimePerQuestionSec,
-        'timed_mode_enabled': _timedModeEnabled,
-        'allowed_challenge_types': _allowedChallengeTypes,
-      }, onConflict: 'user_id');
+      final prefRepo = ref.read(preferenceRepositoryProvider);
+      await prefRepo.upsertMine(
+        defaultNumQuestions: _defaultNumQuestions,
+        defaultDifficulty: _defaultDifficulty,
+        defaultTimePerQuestionSec: _defaultTimePerQuestionSec,
+        timedModeEnabled: _timedModeEnabled,
+        quickStartEnabled: _quickStartEnabled,
+        allowedChallengeTypes: _allowedChallengeTypes,
+      );
       ref.refresh(userPreferencesProvider);
       widget.onComplete();
     } catch (e) {
@@ -152,6 +155,12 @@ class _QuizPreferencesOnboardingScreenState
               subtitle: const Text('Enable timed mode by default'),
               value: _timedModeEnabled,
               onChanged: (v) => setState(() => _timedModeEnabled = v),
+            ),
+            SwitchListTile(
+              title: const Text('Quick Start'),
+              subtitle: const Text('Start quizzes with your defaults'),
+              value: _quickStartEnabled,
+              onChanged: (v) => setState(() => _quickStartEnabled = v),
             ),
             _buildDropdownField<int>(
               label: 'Default Number of Questions',

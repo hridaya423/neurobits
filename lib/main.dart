@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:neurobits/core/app_router.dart';
-import 'package:neurobits/services/supabase.dart';
+import 'package:neurobits/firebase_options.dart';
 import 'package:neurobits/services/ai_service.dart';
+import 'package:neurobits/services/auth_service.dart';
+import 'package:neurobits/services/convex_client_service.dart';
 import 'package:neurobits/core/widgets/splash_screen.dart';
 import 'package:neurobits/services/content_moderation_service.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,21 +20,58 @@ void main() async {
   }
 
   try {
-    await ContentModerationService.init();
-  } catch (e) {
-    debugPrint("Error initializing ContentModerationService: $e");
-  }
-
-  try {
     await AIService.init();
   } catch (e) {
     debugPrint("Error initializing AIService: $e");
   }
 
   try {
-    await SupabaseService.init();
+    await ContentModerationService.init();
   } catch (e) {
-    debugPrint("App cannot continue without Supabase");
+    debugPrint("Error initializing ContentModerationService: $e");
+  }
+
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+
+    final authService = await AuthService.init();
+    final convexClient = await ConvexClientService.init();
+
+    if (authService.currentStatus == AuthStatus.authenticated) {
+      final idToken = await authService.getIdToken(forceRefresh: true);
+      if (idToken != null) {
+        await convexClient.setAuthToken(idToken);
+
+        convexClient
+            .mutation(name: 'users:ensureCurrent', args: {})
+            .timeout(const Duration(seconds: 15))
+            .catchError((e) => debugPrint('Warning: ensureCurrent failed: $e'));
+      }
+    }
+
+    authService.idTokenChanges.listen((firebaseUser) async {
+      if (firebaseUser == null) {
+        await convexClient.setAuthToken(null);
+        return;
+      }
+
+      final idToken = await authService.getIdToken();
+      if (idToken == null) {
+        await convexClient.setAuthToken(null);
+        return;
+      }
+
+      await convexClient.setAuthToken(idToken);
+      convexClient
+          .mutation(name: 'users:ensureCurrent', args: {})
+          .timeout(const Duration(seconds: 15))
+          .catchError((e) =>
+              debugPrint('Warning: ensureCurrent failed (token listener): $e'));
+    });
+  } catch (e) {
+    debugPrint("Error initializing Firebase Auth/Convex: $e");
     runApp(
       MaterialApp(
         home: Scaffold(
@@ -93,7 +131,6 @@ class _SplashWrapperState extends State<_SplashWrapper> {
   @override
   void initState() {
     super.initState();
-    _listenForAuthRedirects();
 
     if (_hasShownSplash) {
       _showSplash = false;
@@ -106,15 +143,6 @@ class _SplashWrapperState extends State<_SplashWrapper> {
   @override
   void dispose() {
     super.dispose();
-  }
-
-  void _listenForAuthRedirects() {
-    Supabase.instance.client.auth.onAuthStateChange.listen((data) {
-      if (!mounted) return;
-      if (data.event == AuthChangeEvent.passwordRecovery) {
-        GoRouter.of(context).go('/auth/reset-password');
-      }
-    });
   }
 
   void _startSplashTimer() async {
@@ -130,9 +158,8 @@ class _SplashWrapperState extends State<_SplashWrapper> {
   void _preloadDataInBackground() {
     Future.microtask(() async {
       try {
-        final user = SupabaseService.client.auth.currentUser;
-        if (user != null) {
-          SupabaseService.getUserStats(user.id);
+        if (AuthService.instance.currentStatus == AuthStatus.authenticated) {
+          ConvexClientService.instance.query(name: 'users:getMe');
         }
       } catch (e) {
         debugPrint('Background data preload error: $e');

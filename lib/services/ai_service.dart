@@ -4,7 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:neurobits/services/supabase.dart';
+import 'package:neurobits/services/auth_service.dart';
+import 'package:neurobits/services/convex_client_service.dart';
+import 'package:neurobits/repositories/topic_repository.dart';
+import 'package:neurobits/repositories/user_repository.dart';
+import 'package:neurobits/repositories/challenge_repository.dart';
 import 'package:neurobits/core/learning_path_providers.dart';
 import 'package:neurobits/services/content_moderation_service.dart';
 
@@ -67,8 +71,7 @@ class AIService {
   static bool _validInput = true;
   static bool _isConfigured = false;
   static String? _apiKey;
-  static final RegExp _validInputPattern =
-      RegExp(r'''^[\w\s_.!,?()"'#+-]+$''');
+  static final RegExp _validInputPattern = RegExp(r'^[\s\S]+$');
 
   AIService._();
 
@@ -85,9 +88,7 @@ class AIService {
     if (!_isConfigured) {
       debugPrint('[AIService] Warning: $_apiKeyEnvName not configured.');
     }
-    debugPrint('[AIService] Initialized. Configured: $_isConfigured');
   }
-
 
   static String sanitizePrompt(String input) {
     return input
@@ -111,8 +112,11 @@ class AIService {
         filtered.replaceAll(RegExp(r'</think>', caseSensitive: false), '');
 
     filtered = filtered.replaceAll(
-        RegExp(r'^(Reasoning|Analysis|Thought|Let me think|Thinking):\s*.*?(?=\n\n|\[|\{)',
-            caseSensitive: false, dotAll: true, multiLine: true),
+        RegExp(
+            r'^(Reasoning|Analysis|Thought|Let me think|Thinking):\s*.*?(?=\n\n|\[|\{)',
+            caseSensitive: false,
+            dotAll: true,
+            multiLine: true),
         '');
 
     filtered = filtered.replaceAll(RegExp(r'```json\s*'), '');
@@ -135,12 +139,12 @@ class AIService {
 
     final result = await ContentModerationService.moderateContent(
       prompt,
-      userId: userId ?? SupabaseService.client.auth.currentUser?.id,
+      userId: userId ?? AuthService.instance.currentSubject,
     );
 
     if (!result.isAppropriate) {
       debugPrint(
-          'Prompt moderation blocked inappropriate content: ${result.message}');
+          'Warning: Prompt moderation blocked inappropriate content: ${result.message}');
       throw Exception('Content moderation: ${result.message}');
     }
 
@@ -170,7 +174,6 @@ class AIService {
     bool includeInput = false,
     bool includeFillBlank = false,
   }) async {
-
     topic = sanitizePrompt(topic);
     difficulty = sanitizePrompt(difficulty);
     if (!isValidPromptInput(topic) || !isValidPromptInput(difficulty)) {
@@ -243,7 +246,6 @@ class AIService {
         },
       );
       if (response.statusCode == 200) {
-
         final data = jsonDecode(utf8.decode(response.bodyBytes));
         final content =
             _filterThinkTags(data['choices'][0]['message']['content']);
@@ -279,7 +281,6 @@ class AIService {
             final questionText = q['question']?.toString().trim() ?? '';
             if (questionText.isEmpty) {
               continue;
-              
             }
             if (seenQuestions.contains(questionText)) {
               continue;
@@ -308,7 +309,6 @@ class AIService {
                   answer is String &&
                   answer.isNotEmpty &&
                   answerMatchesOption;
-
             } else if (type == 'input' ||
                 type == 'fill_blank' ||
                 type == 'code') {
@@ -334,9 +334,8 @@ class AIService {
       } else {
         throw AIServiceError.fromResponse(response);
       }
-    } catch (e, stackTrace) {
+    } catch (e) {
       debugPrint('[generateQuestions] Error: $e');
-      debugPrint('[generateQuestions] Stack trace: $stackTrace');
       if (e is AIServiceError) {
         rethrow;
       } else {
@@ -393,7 +392,7 @@ class AIService {
     {
       "quiz_name": "...",
       "questions": [
-        { "type": "mcq", "question": "...", "options": ["...", "...", "...", "..."], "solution": 2, "title": "...", "estimated_time_seconds": 30 },
+        { "type": "mcq", "question": "...", "options": ["...", "...", "...", "..."], "answer": "...", "title": "...", "estimated_time_seconds": 30 },
         { "type": "code", "question": "...", "starter_code": "...", "solution": "...", "language": "python", "title": "...", "estimated_time_seconds": 60 },
         { "type": "input", "question": "...", "solution": "...", "title": "...", "estimated_time_seconds": 30 },
         { "type": "fill_blank", "question": "...", "solution": "...", "title": "...", "estimated_time_seconds": 20 },
@@ -420,7 +419,6 @@ class AIService {
         },
       );
       if (response.statusCode == 200) {
-
         final data = jsonDecode(utf8.decode(response.bodyBytes));
         final content =
             _filterThinkTags(data['choices'][0]['message']['content']);
@@ -456,6 +454,30 @@ class AIService {
             if (!_isValidQuestionType(type, includeCodeChallenges, includeMcqs,
                 includeInput, includeFillBlank)) {
               continue;
+            }
+            if (type == 'mcq') {
+              final optionsRaw = q['options'];
+              if (optionsRaw is List) {
+                final options = optionsRaw
+                    .map((e) => e is String
+                        ? e
+                        : (e is Map ? e['text']?.toString() : e?.toString()))
+                    .whereType<String>()
+                    .toList();
+                if (options.isNotEmpty) {
+                  if (q['answer'] == null) {
+                    final solution = q['solution'];
+                    if (solution is int &&
+                        solution >= 0 &&
+                        solution < options.length) {
+                      q['answer'] = options[solution];
+                    } else if (solution is String) {
+                      q['answer'] = solution;
+                    }
+                  }
+                  q['options'] = options;
+                }
+              }
             }
             seenQuestions.add(questionText);
             uniqueQuestions.add(Map<String, dynamic>.from(q));
@@ -572,7 +594,19 @@ class AIService {
     summary = sanitizePrompt(summary).replaceAll(RegExp(r'\s+'), ' ');
     _validatePrompt(summary);
     final prompt =
-        '''You are an experienced learning coach and performance analyst. Given the quiz session summary below, provide a concise, personalized analysis of your strengths, weaknesses, and targeted recommendations for improvement. Use motivating and direct language, address the reader as "you", and limit your response to one paragraph.\n\n$summary''';
+        '''You are an experienced learning coach. Given the quiz session summary below, return concise, high-signal feedback. Output EXACTLY this format:
+
+Wins:
+- <1 short bullet on what they did well>
+- <1 short bullet on what they did well>
+
+Focus next:
+- <1 short bullet on what to improve>
+- <1 short bullet on what to improve>
+
+Summary: <1 short sentence>
+
+Keep bullets under 12 words. Be direct and specific.\n\n$summary''';
     final response = await _postWithFallback(
       body: {
         'model': _primaryModel,
@@ -584,8 +618,8 @@ class AIService {
           },
           {'role': 'user', 'content': prompt}
         ],
-        'temperature': 0.7,
-        'max_tokens': 400,
+        'temperature': 0.4,
+        'max_tokens': 220,
       },
     );
 
@@ -600,7 +634,7 @@ class AIService {
       throw Exception('AI Service error: ${response.body}');
     }
   }
- 
+
   static Future<Map<String, dynamic>> generateLearningPath(
       String topic, String level, int durationDays, int dailyMinutes) async {
     topic = sanitizePrompt(topic);
@@ -615,9 +649,18 @@ class AIService {
       throw Exception('Invalid daily minutes');
     }
     final systemPrompt =
-        '''You are a world-class curriculum designer and personalized learning path architect. Do NOT output any <think> tags or chain-of-thought reasoning. Create a structured, multi-day learning path as a valid JSON object matching the exact format below. Do not include any additional commentary.
+        '''You are a world-class curriculum designer. CRITICAL: You MUST create EXACTLY $durationDays days in the path array - no more, no less. This is mandatory.
 
-CRITICAL: Make descriptions engaging, specific, and actionable. Avoid generic phrases like "Learn about X". Instead use active, motivating language.
+Do NOT output any <think> tags or chain-of-thought reasoning. Create a structured, multi-day learning path as a valid JSON object matching the exact format below. Do not include any additional commentary.
+
+REQUIREMENTS:
+1. The "path" array MUST contain EXACTLY $durationDays items
+2. Days must be numbered sequentially from 1 to $durationDays
+3. Make descriptions engaging, specific, and actionable (under 100 chars)
+4. Avoid generic phrases like "Learn about X" - use active, motivating language
+5. Each day MUST include 3-5 "subtopics" (quiz-friendly units) to create multiple challenges per day
+6. Each subtopic must be distinct and non-overlapping for that day
+7. If you run out of new topics before day $durationDays, create review/check-in days that reinforce previous learning
 
 {
   "path_description": "A compelling 1-2 sentence overview of what the learner will achieve",
@@ -627,7 +670,15 @@ CRITICAL: Make descriptions engaging, specific, and actionable. Avoid generic ph
       "topic": "specific subtopic name",
       "challenge_type": "quiz",
       "title": "engaging title",
-      "description": "specific, actionable description that explains what they'll master (under 100 chars)"
+      "description": "specific, actionable description that explains what they'll master",
+      "subtopics": [
+        {
+          "topic": "micro-topic",
+          "challenge_type": "quiz",
+          "title": "short, focused title",
+          "description": "actionable 1-line description"
+        }
+      ]
     }
   ]
 }
@@ -635,27 +686,28 @@ CRITICAL: Make descriptions engaging, specific, and actionable. Avoid generic ph
 Example good descriptions:
 - "Master the fundamentals of functions and return values through hands-on coding"
 - "Build confidence with conditional statements using real-world scenarios"
-- "Explore data structures by implementing your own list and dictionary operations"
+- "Review and consolidate your understanding of loops and iterations"
+- "Check-in: Apply what you've learned with mixed practice problems"
 
 Example bad descriptions (avoid these):
 - "Learn about functions"
 - "Topic: Conditionals"
 - "Day 5 - Data structures"
-''';
+
+REMEMBER: The path array MUST have EXACTLY $durationDays entries. Count them before outputting.''';
+
     final userPrompt =
         '''Create a personalized $durationDays-day learning path for the topic "$topic" at the $level level with daily sessions of $dailyMinutes minutes.
+
+MANDATORY: You MUST return exactly $durationDays days in the path array. If you cannot think of enough new topics, create review days with titles like "Review Day" or "Check-in" that consolidate previous learning.
 
 Learner context:
 - Level: $level (adjust difficulty accordingly)
 - Time per day: $dailyMinutes minutes
-- Duration: $durationDays days
+- Duration: EXACTLY $durationDays days (no more, no less)
 
-Make the path_description engaging and personalized. For example:
-- Beginner: "Start your journey with..." or "Build a solid foundation in..."
-- Intermediate: "Advance your skills with..." or "Master intermediate concepts through..."
-- Advanced: "Push your expertise with..." or "Tackle advanced challenges in..."
+Make the path_description engaging and personalized. Each day's description should be specific, motivating, and under 100 characters. Each day must include 3-5 subtopics.''';
 
-Ensure each day's description is specific, motivating, and under 100 characters.''';
     try {
       final response = await _postWithFallback(
         body: {
@@ -667,7 +719,7 @@ Ensure each day's description is specific, motivating, and under 100 characters.
             },
             {'role': 'user', 'content': userPrompt},
           ],
-          'max_tokens': 4000,
+          'max_tokens': 20000,
           'temperature': 0.7,
         },
       );
@@ -684,7 +736,7 @@ Ensure each day's description is specific, motivating, and under 100 characters.
       final jsonStart = content.indexOf('{');
       final jsonEnd = content.lastIndexOf('}');
       if (jsonStart == -1 || jsonEnd == -1) {
-        debugPrint('Invalid JSON format');
+        debugPrint('Error: Invalid JSON format');
         return await _getIntelligentFallbackPath(
             topic, level, durationDays, dailyMinutes);
       }
@@ -692,13 +744,13 @@ Ensure each day's description is specific, motivating, and under 100 characters.
       try {
         final decoded = jsonDecode(content);
         if (decoded is! Map) {
-          debugPrint('Invalid JSON format');
+          debugPrint('Error: Invalid JSON format');
           return await _getIntelligentFallbackPath(
               topic, level, durationDays, dailyMinutes);
         }
         final pathData = Map<String, dynamic>.from(decoded);
         if (!pathData.containsKey('path') || pathData['path'] is! List) {
-          debugPrint('Missing path array');
+          debugPrint('Error: Missing path array');
           return await _getIntelligentFallbackPath(
               topic, level, durationDays, dailyMinutes);
         }
@@ -708,19 +760,24 @@ Ensure each day's description is specific, motivating, and under 100 characters.
               ? Map<String, dynamic>.from(item)
               : <String, dynamic>{};
           if (_validatePathItem(typedItem)) {
+            final dayVal = (typedItem['day'] as num?)?.toInt();
+            if (dayVal == null || dayVal < 1) {
+              continue;
+            }
             cleanedPath.add({
-              'day': typedItem['day'],
+              'day': dayVal,
               'topic': typedItem['topic'],
-              'challenge_type': typedItem['challenge_type']
-                  .toString()
-                  .toLowerCase(),
+              'challenge_type':
+                  typedItem['challenge_type'].toString().toLowerCase(),
               'title': typedItem['title'],
               'description': typedItem['description'],
+              if (typedItem['subtopics'] is List)
+                'subtopics': List<dynamic>.from(typedItem['subtopics']),
             });
           }
         }
         if (cleanedPath.isEmpty) {
-          debugPrint('No valid path items');
+          debugPrint('Error: No valid path items');
           return await _getIntelligentFallbackPath(
               topic, level, durationDays, dailyMinutes);
         }
@@ -728,6 +785,59 @@ Ensure each day's description is specific, motivating, and under 100 characters.
         while (cleanedPath.length > durationDays) {
           cleanedPath.removeLast();
         }
+
+        if (cleanedPath.length < durationDays) {
+          final missingCount = durationDays - cleanedPath.length;
+          final supplemental = await _generateMissingPathDays(
+            topic: topic,
+            level: level,
+            dailyMinutes: dailyMinutes,
+            startDay: cleanedPath.length + 1,
+            missingCount: missingCount,
+            existingTopics: cleanedPath
+                .map((p) => p['topic']?.toString() ?? '')
+                .where((t) => t.isNotEmpty)
+                .toList(),
+          );
+          cleanedPath.addAll(supplemental);
+        }
+
+        if (cleanedPath.length < durationDays) {
+          final existingTopics = cleanedPath
+              .map((p) => p['topic']?.toString() ?? '')
+              .where((t) => t.isNotEmpty)
+              .toList();
+          final fillers = [
+            'Applied Practice',
+            'Deep Dive',
+            'Case Study',
+            'Synthesis',
+            'Hands-on Lab',
+          ];
+          var i = 0;
+          while (cleanedPath.length < durationDays) {
+            final idx = cleanedPath.length;
+            final fillTopic = existingTopics.isNotEmpty
+                ? existingTopics[idx % existingTopics.length]
+                : topic;
+            final label = fillers[idx % fillers.length];
+            cleanedPath.add({
+              'day': idx + 1,
+              'topic': fillTopic,
+              'challenge_type': 'quiz',
+              'title': '$label: $fillTopic',
+              'description':
+                  'Apply $fillTopic concepts through targeted practice and analysis.',
+            });
+            i++;
+          }
+        }
+
+        cleanedPath.sort((a, b) => a['day'].compareTo(b['day']));
+        for (var i = 0; i < cleanedPath.length; i++) {
+          cleanedPath[i]['day'] = i + 1;
+        }
+
         final pathDescription = pathData['path_description']?.toString().trim();
         return {
           'path_description':
@@ -769,16 +879,107 @@ Ensure each day's description is specific, motivating, and under 100 characters.
           .every((field) => item.containsKey(field) && item[field] != null)) {
         return false;
       }
-      if (item['day'] is! int || item['day'] < 1) {
+      final dayVal = item['day'];
+      if (dayVal is! num || dayVal < 1) {
         return false;
       }
       final challengeType = item['challenge_type'].toString().toLowerCase();
       if (!validChallengeTypes.contains(challengeType)) {
         return false;
       }
+      if (item.containsKey('subtopics') && item['subtopics'] is! List) {
+        return false;
+      }
       return true;
     } catch (e) {
       return false;
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>> _generateMissingPathDays({
+    required String topic,
+    required String level,
+    required int dailyMinutes,
+    required int startDay,
+    required int missingCount,
+    required List<String> existingTopics,
+  }) async {
+    if (!isConfigured() || missingCount <= 0) return [];
+
+    final existingList =
+        existingTopics.isNotEmpty ? existingTopics.join(', ') : topic;
+
+    final prompt = '''
+We have a learning path for "$topic" ($level). We are missing $missingCount days, starting from day $startDay.
+
+Existing topics: $existingList
+
+Generate $missingCount NEW days to complete the path. Rules:
+1. Avoid repeating topics already listed.
+2. Do NOT use "Review Day" for more than 2 items.
+3. Use actionable titles and descriptions (under 100 chars).
+4. Each day MUST include 3-5 subtopics.
+5. Each subtopic must be distinct and non-overlapping for that day.
+6. Output ONLY a JSON array of objects with keys: day, topic, challenge_type, title, description, subtopics.
+
+Example:
+[
+  {"day": $startDay, "topic": "Advanced Concept", "challenge_type": "quiz", "title": "Deep Dive: Advanced Concept", "description": "Apply advanced concept through analysis and practice.", "subtopics": [
+    {"topic": "Micro skill", "challenge_type": "quiz", "title": "Focused practice", "description": "Practice a narrow skill."}
+  ]}
+]
+''';
+
+    try {
+      final response = await _postWithFallback(
+        body: {
+          'model': _primaryModel,
+          'messages': [
+            {
+              'role': 'system',
+              'content':
+                  'You are a curriculum generator. Output only a JSON array of objects. No extra text.',
+            },
+            {'role': 'user', 'content': prompt},
+          ],
+          'max_tokens': 6000,
+          'temperature': 0.6,
+        },
+      );
+
+      if (response.statusCode != 200) return [];
+      final data = jsonDecode(utf8.decode(response.bodyBytes));
+      String content =
+          _filterThinkTags(data['choices'][0]['message']['content']).trim();
+
+      final startIdx = content.indexOf('[');
+      final endIdx = content.lastIndexOf(']');
+      if (startIdx == -1 || endIdx == -1 || startIdx >= endIdx) return [];
+      final jsonStr = content.substring(startIdx, endIdx + 1);
+
+      final parsed = jsonDecode(jsonStr) as List<dynamic>;
+      final results = <Map<String, dynamic>>[];
+      for (var i = 0; i < parsed.length; i++) {
+        final item = parsed[i];
+        if (item is Map) {
+          final m = Map<String, dynamic>.from(item);
+          results.add({
+            'day': (startDay + i),
+            'topic': m['topic'] ?? topic,
+            'challenge_type':
+                (m['challenge_type'] ?? 'quiz').toString().toLowerCase(),
+            'title': m['title'] ?? 'Day ${startDay + i}',
+            'description': m['description'] ??
+                'Apply ${m['topic'] ?? topic} through targeted practice.',
+            if (m['subtopics'] is List)
+              'subtopics': List<dynamic>.from(m['subtopics']),
+          });
+        }
+      }
+      return results;
+    } catch (e) {
+      debugPrint('Error generating missing path days: $e');
+      return [];
     }
   }
 
@@ -841,22 +1042,13 @@ Ensure each day's description is specific, motivating, and under 100 characters.
   static Future<Map<String, dynamic>> _getIntelligentFallbackPath(
       String topic, String level, int durationDays, int dailyMinutes) async {
     try {
-      final relatedTopics = await SupabaseService.client
-          .from('topics')
-          .select(
-              'id, name, difficulty, description, estimated_time_minutes, category')
-          .or(
-              'name.ilike.%$topic%,category.ilike.%$topic%,description.ilike.%$topic%')
-          .limit(50);
+      final topicRepo = TopicRepository(ConvexClientService.instance);
 
-      List<dynamic> topicsToUse = relatedTopics;
+      List<Map<String, dynamic>> topicsToUse =
+          await topicRepo.searchRelated(topic: topic, limit: 50);
 
       if (topicsToUse.isEmpty) {
-        topicsToUse = await SupabaseService.client
-            .from('topics')
-            .select(
-                'id, name, difficulty, description, estimated_time_minutes, category')
-            .limit(50);
+        topicsToUse = await topicRepo.listAll();
       }
 
       if (topicsToUse.isEmpty) {
@@ -970,61 +1162,53 @@ Topic: "$topic"
     required bool timedMode,
     required WidgetRef ref,
     int? totalTimeLimit,
+    String? userPathChallengeId,
   }) async {
-    debugPrint("[prepareQuizData] Starting quiz data preparation...");
-    final user = SupabaseService.client.auth.currentUser;
-    if (user == null) {
+    final userId = AuthService.instance.currentSubject;
+    if (userId == null) {
       throw Exception("User not authenticated");
     }
     String finalDifficulty = difficulty;
     bool adaptiveEnabled = true;
-    debugPrint("[prepareQuizData] Reading user path provider...");
     final currentPath = ref.read(userPathProvider);
     String topicForAI = topic;
     if (currentPath != null && currentPath['name'] != null) {
       final pathSteps = currentPath['path'] as List<dynamic>? ?? [];
-      bool topicInPath =
+      final topicInPath =
           pathSteps.any((step) => step is Map && step['topic'] == topic);
       if (topicInPath) {
         topicForAI = "$topic for ${currentPath['name']}";
-        debugPrint(
-            "[prepareQuizData] Using learning path context for AI: $topicForAI");
-      } else {
-        debugPrint(
-            "[prepareQuizData] Topic not in current path, using default: $topicForAI");
       }
-    } else {
-      debugPrint(
-          "[prepareQuizData] No active learning path, using default topic: $topicForAI");
     }
-    debugPrint("[prepareQuizData] Fetching adaptive difficulty preference...");
-    adaptiveEnabled =
-        await SupabaseService.getAdaptiveDifficultyPreference(userId: user.id);
+    try {
+      final userRepo = UserRepository(ConvexClientService.instance);
+      final userProfile = await userRepo.getMe();
+      adaptiveEnabled = userProfile?['adaptiveDifficultyEnabled'] == true;
+    } catch (e) {
+      debugPrint("[prepareQuizData] Error fetching user settings: $e");
+      adaptiveEnabled = true;
+    }
     if (adaptiveEnabled) {
-      debugPrint(
-          "[prepareQuizData] Adaptive difficulty enabled. Fetching adaptive difficulty...");
-      final topicData = await SupabaseService.client
-          .from('topics')
-          .select('id')
-          .eq('name', topic)
-          .maybeSingle();
-      if (topicData != null && topicData['id'] != null) {
-        final calculatedAdaptiveDifficulty =
-            await SupabaseService.getAdaptiveDifficulty(
-                userId: user.id, topicId: topicData['id']);
-        finalDifficulty = calculatedAdaptiveDifficulty;
+      try {
+        final topicRepo = TopicRepository(ConvexClientService.instance);
+        final matchingTopics =
+            await topicRepo.searchRelated(topic: topic, limit: 1);
+        if (matchingTopics.isNotEmpty && matchingTopics[0]['_id'] != null) {
+          try {
+            final adaptiveResult =
+                await topicRepo.getAdaptiveDifficultyForTopic(
+                    topicId: matchingTopics[0]['_id'] as String);
+            finalDifficulty = adaptiveResult['difficulty'] as String;
+          } catch (e) {
+            debugPrint(
+                "[prepareQuizData] Error getting adaptive difficulty: $e, using '$finalDifficulty'");
+          }
+        }
+      } catch (e) {
         debugPrint(
-            "[prepareQuizData] Using adaptive difficulty: $finalDifficulty");
-      } else {
-        debugPrint(
-            "[prepareQuizData] Topic not found in DB for adaptive difficulty, using '$finalDifficulty'");
+            "[prepareQuizData] Error fetching topic for adaptive difficulty: $e, using '$finalDifficulty'");
       }
-    } else {
-      debugPrint(
-          "[prepareQuizData] Adaptive difficulty disabled. Using provided difficulty: $finalDifficulty");
     }
-    debugPrint(
-        "[prepareQuizData] Calling AIService.generateQuestions for topic: '$topicForAI', difficulty: '$finalDifficulty', count: $questionCount");
     final questions = await AIService.generateQuestions(
       topicForAI,
       finalDifficulty,
@@ -1038,10 +1222,23 @@ Topic: "$topic"
       throw Exception(
           "We couldn't create questions with your current preferences. Try selecting different question types or topics.");
     }
-    debugPrint(
-        "[prepareQuizData] AIService.generateQuestions returned ${questions.length} questions.");
     final quizName = '$topic Quiz';
-    final routeKey =
+
+    String? challengeId;
+    try {
+      final challengeRepo = ChallengeRepository(ConvexClientService.instance);
+      challengeId = await challengeRepo.createAdHoc(
+        topic: topic,
+        difficulty: finalDifficulty,
+        questionCount: questions.length,
+        quizName: quizName,
+      );
+    } catch (e) {
+      debugPrint(
+          "[prepareQuizData] Warning: failed to create ad-hoc challenge: $e");
+    }
+
+    final routeKey = challengeId ??
         "${quizName.hashCode}_${DateTime.now().millisecondsSinceEpoch}";
     final extraData = {
       'topic': topic,
@@ -1050,8 +1247,10 @@ Topic: "$topic"
       'timedMode': timedMode,
       'totalTimeLimit': totalTimeLimit,
       'timePerQuestion': timePerQuestion,
+      if (challengeId != null) 'challengeId': challengeId,
+      if (userPathChallengeId != null)
+        'userPathChallengeId': userPathChallengeId,
     };
-    debugPrint("[prepareQuizData] Quiz data prepared successfully.");
     return {
       'routeKey': routeKey,
       'extraData': extraData,
@@ -1060,7 +1259,7 @@ Topic: "$topic"
 
   static Future<List<Map<String, dynamic>>> generateQuizQuestions(
       String topic, int numQuestions) async {
-    final userId = SupabaseService.client.auth.currentUser?.id;
+    final userId = AuthService.instance.currentSubject;
     final moderatedTopic = await moderatePrompt(topic, userId: userId);
     if (moderatedTopic == null) {
       throw Exception('Topic contains inappropriate content');
@@ -1151,9 +1350,365 @@ Each question must have:
     }
   }
 
+  static Future<List<String>> suggestNewTopics({
+    required List<String> interestedTopics,
+    required List<String> practicedTopics,
+    required String experienceLevel,
+    required List<String> allAvailableTopics,
+    List<String> pathTopics = const [],
+    int count = 5,
+  }) async {
+    final practicedLower = practicedTopics.map((t) => t.toLowerCase()).toSet();
+
+    final bool hasCatalog = allAvailableTopics.isNotEmpty;
+    final unpracticed = hasCatalog
+        ? allAvailableTopics
+            .where((t) => !practicedLower.contains(t.toLowerCase()))
+            .toList()
+        : <String>[];
+
+    if (hasCatalog && unpracticed.length <= count && unpracticed.isNotEmpty) {
+      return unpracticed;
+    }
+
+    if (!isConfigured()) {
+      if (unpracticed.isNotEmpty) {
+        unpracticed.shuffle(Random());
+        return unpracticed.take(count).toList();
+      }
+      return [];
+    }
+
+    final String prompt;
+    if (hasCatalog && unpracticed.isNotEmpty) {
+      final pathContext = pathTopics.isNotEmpty
+          ? '\n- Learning path topics: ${pathTopics.join(', ')}'
+          : '';
+      prompt = '''
+Given a learner with:
+- Experience level: $experienceLevel
+- Interested topics: ${interestedTopics.join(', ')}$pathContext
+- Already practiced: ${practicedTopics.join(', ')}
+
+From this list of available topics they have NOT tried yet:
+${unpracticed.join(', ')}
+
+Pick the $count most relevant and interesting topics for them to try next.
+IMPORTANT: Suggest topics that are closely related to the domains the user is already active in. ${pathTopics.isNotEmpty ? 'Also consider their learning path goals. ' : ''}If they practice maths, suggest more maths sub-topics (algebra, calculus, statistics). If they practice physics and AI, suggest engineering, reinforcement learning, ML, etc. Do NOT suggest wildly unrelated domains.
+Return ONLY a JSON array of topic name strings, exactly matching names from the available list above.
+Example: ["Topic A", "Topic B", "Topic C"]
+''';
+    } else {
+      final activeDomains = <String>{};
+      activeDomains.addAll(practicedTopics);
+      activeDomains.addAll(interestedTopics);
+
+      final pathContext = pathTopics.isNotEmpty
+          ? '\n- Learning path topics: ${pathTopics.join(', ')}'
+          : '';
+
+      prompt = '''
+Given a learner with:
+- Experience level: $experienceLevel
+- Active domains / interests: ${activeDomains.join(', ')}$pathContext
+- Already practiced: ${practicedTopics.isNotEmpty ? practicedTopics.join(', ') : 'nothing yet'}
+
+Suggest $count specific, quiz-friendly topics they would enjoy exploring next.
+
+CRITICAL RULES:
+1. Suggestions MUST be sub-topics or closely related areas within the user's active domains. If they do "Mathematics", suggest "Linear Algebra", "Calculus", "Number Theory" — NOT "Biology" or "Art History".
+2. ${pathTopics.isNotEmpty ? 'Also consider their learning path goals. ' : ''}If they practice multiple domains (e.g. "Physics" + "AI"), you may suggest cross-disciplinary topics (e.g. "Computational Physics", "Reinforcement Learning") but stay within those domains.
+3. Do NOT suggest wildly different or unrelated domains. Stay scoped.
+4. Keep names concise (1-3 words each).
+5. Do NOT repeat topics they have already practiced.
+
+Return ONLY a JSON array of topic name strings.
+Example: ["Linear Algebra", "Differential Equations", "Probability Theory"]
+''';
+    }
+
+    try {
+      final response = await _postWithFallback(
+        body: {
+          'model': _primaryModel,
+          'messages': [
+            {
+              'role': 'system',
+              'content':
+                  'You are a learning recommendation engine. Output only a JSON array of topic name strings. No extra text, no think tags.',
+            },
+            {'role': 'user', 'content': prompt},
+          ],
+          'max_tokens': 300,
+          'temperature': 0.6,
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
+        String content =
+            _filterThinkTags(data['choices'][0]['message']['content']).trim();
+
+        final startIdx = content.indexOf('[');
+        final endIdx = content.lastIndexOf(']');
+        if (startIdx == -1 || endIdx == -1 || startIdx >= endIdx) {
+          debugPrint('[suggestNewTopics] Error: No JSON array in AI response');
+          if (unpracticed.isNotEmpty) {
+            unpracticed.shuffle(Random());
+            return unpracticed.take(count).toList();
+          }
+          return [];
+        }
+
+        final jsonStr = content.substring(startIdx, endIdx + 1);
+        final parsed = jsonDecode(jsonStr) as List<dynamic>;
+
+        if (hasCatalog && unpracticed.isNotEmpty) {
+          final suggestions = parsed
+              .map((e) => e.toString())
+              .where((name) =>
+                  unpracticed.any((u) => u.toLowerCase() == name.toLowerCase()))
+              .take(count)
+              .toList();
+
+          if (suggestions.length < count) {
+            final remaining = unpracticed
+                .where((u) =>
+                    !suggestions.any((s) => s.toLowerCase() == u.toLowerCase()))
+                .toList();
+            remaining.shuffle(Random());
+            suggestions.addAll(remaining.take(count - suggestions.length));
+          }
+          return suggestions;
+        } else {
+          final suggestions = parsed
+              .map((e) => e.toString())
+              .where((name) =>
+                  name.isNotEmpty &&
+                  !practicedLower.contains(name.toLowerCase()))
+              .take(count)
+              .toList();
+          return suggestions;
+        }
+      }
+    } catch (e) {
+      debugPrint('[suggestNewTopics] AI error: $e');
+    }
+
+    if (unpracticed.isNotEmpty) {
+      unpracticed.shuffle(Random());
+      return unpracticed.take(count).toList();
+    }
+    return [];
+  }
+
+  static Future<List<String>> suggestRelatedPracticeTopics({
+    required List<Map<String, dynamic>> practicedTopics,
+    required String experienceLevel,
+    int count = 3,
+  }) async {
+    if (practicedTopics.isEmpty || !isConfigured()) return [];
+
+    final topicSummaries = practicedTopics.map((t) {
+      final name = t['topicName'] ?? '';
+      final acc = (t['accuracy'] as num?)?.toDouble();
+      final pct = acc != null ? (acc * 100).round() : null;
+      return pct != null ? '$name ($pct% accuracy)' : name;
+    }).join(', ');
+
+    final practicedNames =
+        practicedTopics.map((t) => t['topicName']?.toString() ?? '').toList();
+
+    final prompt = '''
+Given a $experienceLevel-level learner who has practiced these topics:
+$topicSummaries
+
+Suggest $count closely related sub-topics or sibling topics they should practice next to strengthen their understanding. These should be VERY closely related — not branching out into new domains.
+
+For example:
+- If they practiced "Python Functions" → suggest "Python Decorators", "Lambda Expressions", "Closures"
+- If they practiced "Compiler Design" → suggest "Lexical Analysis", "Parsing Techniques", "AST Construction"
+- If they practiced "Science" → suggest "Scientific Method", "Experimental Design", "Data Analysis"
+
+RULES:
+1. Stay tightly within the same domain/subject area.
+2. Do NOT repeat topics they already practiced: ${practicedNames.join(', ')}
+3. Keep names concise (1-4 words).
+4. Return ONLY a JSON array of topic name strings.
+
+Example: ["Lexical Analysis", "Lambda Expressions", "Data Analysis"]
+''';
+
+    try {
+      final response = await _postWithFallback(
+        body: {
+          'model': _primaryModel,
+          'messages': [
+            {
+              'role': 'system',
+              'content':
+                  'You are a learning recommendation engine. Output only a JSON array of topic name strings. No extra text, no think tags.',
+            },
+            {'role': 'user', 'content': prompt},
+          ],
+          'max_tokens': 200,
+          'temperature': 0.5,
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
+        String content =
+            _filterThinkTags(data['choices'][0]['message']['content']).trim();
+
+        final startIdx = content.indexOf('[');
+        final endIdx = content.lastIndexOf(']');
+        if (startIdx == -1 || endIdx == -1 || startIdx >= endIdx) return [];
+
+        final jsonStr = content.substring(startIdx, endIdx + 1);
+        final parsed = jsonDecode(jsonStr) as List<dynamic>;
+
+        final practicedLower =
+            practicedNames.map((n) => n.toLowerCase()).toSet();
+        return parsed
+            .map((e) => e.toString())
+            .where((name) =>
+                name.isNotEmpty && !practicedLower.contains(name.toLowerCase()))
+            .take(count)
+            .toList();
+      }
+    } catch (e) {
+      debugPrint('[suggestRelatedPracticeTopics] AI error: $e');
+    }
+    return [];
+  }
+
+  static Future<List<Map<String, dynamic>>> suggestNewTopicsWithReasons({
+    required List<String> interestedTopics,
+    required List<String> practicedTopics,
+    required String experienceLevel,
+    List<String> pathTopics = const [],
+    int count = 5,
+  }) async {
+    if (!isConfigured()) return [];
+
+    final activeDomains = <String>{};
+    activeDomains.addAll(practicedTopics);
+    activeDomains.addAll(interestedTopics);
+    if (activeDomains.isEmpty) return [];
+
+    final pathContext = pathTopics.isNotEmpty
+        ? '\n- Learning path topics: ${pathTopics.join(', ')}'
+        : '';
+
+    final prompt = '''
+Given a learner with:
+- Experience level: $experienceLevel
+- Active domains / interests: ${activeDomains.join(', ')}$pathContext
+- Already practiced: ${practicedTopics.isNotEmpty ? practicedTopics.join(', ') : 'nothing yet'}
+
+Suggest $count specific, quiz-friendly topics they would enjoy exploring next.
+
+CRITICAL RULES:
+1. Suggestions MUST be sub-topics or closely related areas within the user's active domains.
+2. ${pathTopics.isNotEmpty ? 'Also consider their learning path goals. ' : ''}Do NOT suggest wildly different or unrelated domains. Stay scoped.
+3. Keep names concise (1-3 words each).
+4. Do NOT repeat topics they have already practiced.
+5. For each topic, provide a concise reason (10-15 words) explaining why it's relevant.
+6. Include 2-3 related topic names from their practiced topics that connect to this suggestion.
+
+Return ONLY a JSON array of objects with "name", "reason", and "relatedTopics" keys.
+Example: [
+  {"name": "Linear Algebra", "reason": "Master vectors and matrices to understand how neural networks process data and optimize weights.", "relatedTopics": ["Python", "Machine Learning"]},
+  {"name": "Calculus", "reason": "Learn derivatives and integrals to understand gradient descent and backpropagation in deep learning models.", "relatedTopics": ["Python", "Statistics"]}
+]
+''';
+
+    try {
+      final response = await _postWithFallback(
+        body: {
+          'model': _primaryModel,
+          'messages': [
+            {
+              'role': 'system',
+              'content':
+                  'You are a learning recommendation engine. Output only a JSON array of objects with "name", "reason", and "relatedTopics" keys. No extra text, no think tags.',
+            },
+            {'role': 'user', 'content': prompt},
+          ],
+          'max_tokens': 800,
+          'temperature': 0.6,
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
+        String content =
+            _filterThinkTags(data['choices'][0]['message']['content']).trim();
+
+        final startIdx = content.indexOf('[');
+        final endIdx = content.lastIndexOf(']');
+        if (startIdx == -1 || endIdx == -1 || startIdx >= endIdx) {
+          debugPrint(
+              '[suggestNewTopicsWithReasons] Error: No JSON array found');
+          return [];
+        }
+
+        var jsonStr = content.substring(startIdx, endIdx + 1);
+        jsonStr = jsonStr.replaceAll(RegExp(r',\s*\]'), ']');
+        jsonStr = jsonStr.replaceAll(RegExp(r',\s*\}'), '}');
+        List<dynamic> parsed;
+        try {
+          parsed = jsonDecode(jsonStr) as List<dynamic>;
+        } catch (jsonError) {
+          debugPrint(
+              '[suggestNewTopicsWithReasons] JSON parse error: $jsonError');
+          return [];
+        }
+
+        final practicedLower =
+            practicedTopics.map((t) => t.toLowerCase()).toSet();
+        return parsed
+            .whereType<Map>()
+            .map((e) {
+              final m = e as Map;
+              final related = m['relatedTopics'];
+              return {
+                'name': m['name']?.toString() ?? '',
+                'reason': m['reason']?.toString() ?? '',
+                'relatedTopics': related is List
+                    ? related.map((t) => t.toString()).toList()
+                    : <String>[],
+              };
+            })
+            .where((m) {
+              final name = m['name']?.toString() ?? '';
+              return name.isNotEmpty &&
+                  !practicedLower.contains(name.toLowerCase());
+            })
+            .take(count)
+            .toList();
+      }
+    } catch (e) {
+      debugPrint('[suggestNewTopicsWithReasons] AI error: $e');
+    }
+    return [];
+  }
+
   static Future<String> explainAnswer(String question, String answer) async {
     final prompt = '''
-You are an expert tutor. Given the following question and answer, provide a clear, step-by-step, factual explanation of why the answer is correct. Do NOT use uncertain language, generic advice, or phrases like "maybe", "few", "could", etc. Your explanation must be direct, specific, and unambiguous. If the question is a math problem, show the full calculation. If the answer is incorrect, briefly explain why and give the correct answer.
+You are an expert tutor. Given the question and answer, return a concise explanation in EXACTLY this format:
+
+Key idea: <1-2 short sentences>
+Why correct: <1-2 short sentences>
+Common trap: <1 short sentence>
+
+Rules:
+- Each line must be under 25 words.
+- Total output under 70 words.
+- No paragraphs, no extra lines, no markdown.
+- If the provided answer is wrong, "Why correct" should describe the correct answer and "Common trap" should describe the wrong idea.
+
 Question: $question
 Answer: $answer
 ''';
@@ -1168,8 +1723,8 @@ Answer: $answer
           },
           {'role': 'user', 'content': prompt},
         ],
-        'max_tokens': 2000,
-        'temperature': 0.7,
+        'max_tokens': 260,
+        'temperature': 0.4,
       },
     );
 

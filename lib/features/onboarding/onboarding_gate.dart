@@ -1,24 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:neurobits/features/onboarding/streak_onboarding_screen.dart';
-import 'package:neurobits/services/supabase.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:neurobits/core/providers.dart';
 import 'learning_path_onboarding_screen.dart';
 import 'quiz_preferences_onboarding_screen.dart';
 import 'personalization_onboarding_screen.dart';
 
 final onboardingCompleteProvider = StateProvider<bool>((ref) => false);
+
 Future<void> syncOnboardingStatusFromBackend(WidgetRef ref) async {
-  final user = Supabase.instance.client.auth.currentUser;
-  if (user == null) return;
   try {
-    final userData = await SupabaseService.client
-        .from('users')
-        .select('streak_goal, onboarding_complete, adaptive_difficulty')
-        .eq('id', user.id)
-        .maybeSingle();
-    final onboardingComplete = userData?['onboarding_complete'] == true;
-    final adaptiveDifficulty = userData?['adaptive_difficulty'] == true;
+    final userRepo = ref.read(userRepositoryProvider);
+    final userData = await userRepo.getMe();
+    if (userData == null) return;
+
+    final onboardingComplete = userData['onboardingComplete'] == true;
+    final adaptiveDifficulty = userData['adaptiveDifficultyEnabled'] == true;
     ref.read(adaptiveDifficultyProvider.notifier).state = adaptiveDifficulty;
     if (ref.read(onboardingCompleteProvider) != onboardingComplete) {
       ref.read(onboardingCompleteProvider.notifier).state = onboardingComplete;
@@ -37,6 +34,7 @@ class OnboardingGate extends ConsumerStatefulWidget {
 
 class _OnboardingGateState extends ConsumerState<OnboardingGate> {
   bool _isCheckingOnboarding = false;
+
   @override
   void initState() {
     super.initState();
@@ -49,23 +47,21 @@ class _OnboardingGateState extends ConsumerState<OnboardingGate> {
     if (_isCheckingOnboarding) return;
     _isCheckingOnboarding = true;
     try {
-      final user = Supabase.instance.client.auth.currentUser;
-      if (user == null) return;
-      final userData = await SupabaseService.client
-          .from('users')
-          .select('streak_goal, onboarding_complete, adaptive_difficulty')
-          .eq('id', user.id)
-          .maybeSingle();
+      final userRepo = ref.read(userRepositoryProvider);
+      final userData = await userRepo.getMe();
+      if (userData == null) return;
       if (!mounted) return;
-      final onboardingComplete = userData?['onboarding_complete'] == true;
-      final adaptiveDifficulty = userData?['adaptive_difficulty'] == true;
+
+      final onboardingComplete = userData['onboardingComplete'] == true;
+      final adaptiveDifficulty = userData['adaptiveDifficultyEnabled'] == true;
       ref.read(adaptiveDifficultyProvider.notifier).state = adaptiveDifficulty;
       if (ref.read(onboardingCompleteProvider) != onboardingComplete) {
         ref.read(onboardingCompleteProvider.notifier).state =
             onboardingComplete;
       }
+
       final bool shouldShowOnboarding = !onboardingComplete;
-      debugPrint('[OnboardingGate] shouldShowOnboarding=$shouldShowOnboarding');
+
       if (shouldShowOnboarding && mounted) {
         await showDialog(
           context: context,
@@ -73,24 +69,18 @@ class _OnboardingGateState extends ConsumerState<OnboardingGate> {
           builder: (dialogContext) => StreakOnboardingScreen(
             onComplete: (goal, adaptiveDifficulty) async {
               if (!mounted) return;
-              final currentUserId =
-                  Supabase.instance.client.auth.currentUser?.id;
-              if (currentUserId == null) {
-                if (Navigator.of(dialogContext).canPop()) {
-                  Navigator.of(dialogContext).pop();
-                }
-                return;
-              }
               try {
-                await SupabaseService.client.from('users').update({
-                  'streak_goal': goal,
-                  'adaptive_difficulty': adaptiveDifficulty,
-                  'onboarding_complete': true,
-                }).eq('id', currentUserId);
+                await userRepo.updateProfile(streakGoal: goal);
+                await userRepo.updateSettings(
+                  adaptiveDifficultyEnabled: adaptiveDifficulty,
+                );
+                await userRepo.completeOnboarding();
+
                 if (!mounted) return;
                 if (Navigator.of(dialogContext).canPop()) {
                   Navigator.of(dialogContext).pop();
                 }
+
                 if (!mounted) return;
                 await Navigator.of(context).push(
                   MaterialPageRoute(
@@ -104,6 +94,7 @@ class _OnboardingGateState extends ConsumerState<OnboardingGate> {
                     ),
                   ),
                 );
+
                 if (!mounted) return;
                 await Navigator.of(context).push(
                   MaterialPageRoute(
@@ -117,15 +108,14 @@ class _OnboardingGateState extends ConsumerState<OnboardingGate> {
                     ),
                   ),
                 );
+
                 if (!mounted) return;
                 await syncOnboardingStatusFromBackend(ref);
-                final bool? pathSelected = await showDialog<bool?>(
+                await showDialog<bool?>(
                   context: context,
                   barrierDismissible: false,
                   builder: (dialogContext2) => LearningPathOnboardingScreen(),
                 );
-                debugPrint(
-                    "LearningPathOnboardingScreen completed with result: $pathSelected");
                 await syncOnboardingStatusFromBackend(ref);
               } catch (e) {
                 debugPrint(

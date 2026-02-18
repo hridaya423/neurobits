@@ -63,7 +63,6 @@ class ContentModerationService {
     return result.isAppropriate;
   }
 
-  // Basic blocklist for fallback moderation when API is unavailable
   static final List<String> _blockedPatterns = [
     r'\b(kill|murder|suicide|harm)\b',
     r'\b(porn|xxx|nsfw)\b',
@@ -74,10 +73,10 @@ class ContentModerationService {
     final lowerContent = content.toLowerCase();
     for (final pattern in _blockedPatterns) {
       if (RegExp(pattern, caseSensitive: false).hasMatch(lowerContent)) {
-        return false; // Content is inappropriate
+        return false;
       }
     }
-    return true; // Content passes basic check
+    return true;
   }
 
   static Future<ModerationResult> moderateContent(String content,
@@ -204,7 +203,6 @@ class ContentModerationService {
       Map<String, dynamic> profileData,
       {String? userId}) async {
     Map<String, dynamic> sanitizedData = {};
-    String? rejectionReason;
 
     for (var key in profileData.keys) {
       if (profileData[key] is String) {
@@ -217,10 +215,6 @@ class ContentModerationService {
 
         final result = await moderateContent(stringValue, userId: userId);
         if (!result.isAppropriate) {
-          debugPrint(
-              'Content moderation blocked inappropriate profile data for field: $key');
-
-          rejectionReason = result.message;
           return null;
         }
 

@@ -1,0 +1,13 @@
+{
+  "name": "neurobits-convex",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Convex backend for Neurobits",
+  "dependencies": {
+    "convex": "^1.31.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "typescript": "^5.7.3"
+  }
+}

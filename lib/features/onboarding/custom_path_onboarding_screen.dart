@@ -1,11 +1,10 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import '../../core/providers.dart';
-import '../../services/supabase.dart';
 import '../../services/ai_service.dart';
 import '../../core/learning_path_providers.dart';
-import '../../utils/text_utils.dart';
 
 class CustomPathOnboardingScreen extends ConsumerStatefulWidget {
   const CustomPathOnboardingScreen({super.key});
@@ -76,164 +75,43 @@ class _CustomPathOnboardingScreenState
       );
 
       final List<dynamic> path = aiResponse['path'] ?? [];
+      final String? pathDescription =
+          aiResponse['path_description']?.toString();
       if (path.isEmpty) {
         throw Exception('AI did not return a valid learning path.');
       }
 
-      final capitalizedTopic = TextUtils.capitalizeTitle(topic);
-
-      final aiDescription = aiResponse['path_description'] as String? ??
-          'Customized $level learning path for $capitalizedTopic';
-
-      final existingActivePaths = await SupabaseService.client
-          .from('user_learning_paths')
-          .select('id')
-          .eq('user_id', user['id'])
-          .is_('completed_at', null);
-
-      if (existingActivePaths.isNotEmpty) {
-        final pathIdsToComplete =
-            existingActivePaths.map((p) => p['id']).toList();
-        await SupabaseService.client.from('user_learning_paths').update({
-          'completed_at': DateTime.now().toIso8601String(),
-          'is_complete': true,
-        }).in_('id', pathIdsToComplete);
-      }
-
-      final pathResults =
-          await SupabaseService.client.from('learning_paths').insert({
-        'name': '$capitalizedTopic ($level)',
-        'description': aiDescription,
-        'is_active': true,
-        'created_by': user['id'],
-      }).select();
-
-      if (pathResults.isEmpty) {
-        throw Exception('Failed to create learning path');
-      }
-
-      final pathRes = pathResults.first;
-      final pathId = pathRes['id'];
-
-      final topicNames =
-          path.map((step) => step['topic'] as String).toSet().toList();
-
-      final topicIds = <String, String>{};
-      for (final name in topicNames) {
-        if (name.trim().isEmpty) continue;
-
-        try {
-          final existingTopicResults = await SupabaseService.client
-              .from('topics')
-              .select('id')
-              .ilike('name', name.trim());
-
-          if (existingTopicResults.isNotEmpty) {
-            topicIds[name] = existingTopicResults.first['id'];
-          } else {
-            debugPrint("Topic '$name' not found, inserting into topics table.");
-            final newTopicResults = await SupabaseService.client
-                .from('topics')
-                .insert({'name': name.trim()}).select('id');
-
-            if (newTopicResults.isEmpty) {
-              throw Exception('Failed to create topic: $name');
-            }
-
-            final newTopic = newTopicResults.first;
-            topicIds[name] = newTopic['id'];
-          }
-        } catch (e, s) {
-          debugPrint("Error finding or creating topic '$name': $e\n$s");
-        }
-      }
-
-      for (final step in path) {
-        final topicName = step['topic'] as String;
-        final topicId = topicIds[topicName];
-
-        if (topicId == null) {
-          debugPrint(
-              "Skipping step for topic '$topicName' as topic_id was not found/created.");
-          continue;
-        }
-
-        await SupabaseService.client.from('learning_path_topics').insert({
-          'path_id': pathId,
-          'topic_id': topicId,
-          'step_number': step['day'],
-          'description': step['description'],
-        });
-      }
-
-      final userPathResults =
-          await SupabaseService.client.from('user_learning_paths').insert({
-        'user_id': user['id'],
-        'path_id': pathId,
-        'current_step': 1,
-        'started_at': DateTime.now().toIso8601String(),
-        'duration_days': durationDays,
-        'daily_minutes': dailyMinutes,
-        'level': level,
-        'is_custom': true,
-        'ai_path_json': aiResponse,
-      }).select();
-
-      if (userPathResults.isEmpty) {
-        throw Exception('Failed to create user learning path');
-      }
-
-      final userPathRes = userPathResults.first;
-      final userPathId = userPathRes['id'];
-
-      final challenges = <Map<String, dynamic>>[];
-      for (final step in path) {
-        final topic = step['topic']?.toString().trim() ?? 'Unknown Topic';
-        final description = step['description']?.toString().trim();
-        final title = step['title']?.toString().trim() ?? topic;
-        final challengeType =
-            step['challenge_type']?.toString().toLowerCase() ?? 'quiz';
-
-        final finalDescription = (description == null || description.isEmpty)
-            ? 'Learn about $topic - Day ${step['day']}'
-            : description;
-
-        final challengeData = {
-          'user_path_id': userPathId,
-          'day': step['day'],
-          'topic': topic,
-          'challenge_type': challengeType,
-          'title': title,
-          'description': finalDescription,
-          'completed': false,
-        };
-
-        await SupabaseService.client
-            .from('user_path_challenges')
-            .insert(challengeData);
-
-        challenges.add(challengeData);
-      }
-
-      ref.read(userPathProvider.notifier).state = {
-        ...pathRes,
-        'current_step': 1,
-        'user_path_id': userPathId,
-        'challenges': challenges,
-        'total_steps': challenges.length,
+      final aiPathData = {
+        'path': path,
+        'path_description': pathDescription,
+        'metadata': {},
       };
+      final aiPathJsonString = json.encode(aiPathData);
 
-      await SupabaseService.client.from('users').update({
-        'onboarding_complete': true,
-        'streak_goal': 7,
-      }).eq('id', user['id']);
+      final pathRepo = ref.read(pathRepositoryProvider);
+      final userPathId = await pathRepo.createCustomPathFromAi(
+        topic: topic,
+        level: level,
+        durationDays: durationDays,
+        dailyMinutes: dailyMinutes,
+        aiPathJson: aiPathJsonString,
+        pathDescription: pathDescription,
+      );
+
+      final userRepo = ref.read(userRepositoryProvider);
+      await userRepo.completeOnboarding();
+
+      ref.invalidate(activeLearningPathProvider);
+      final activePath = await ref.read(activeLearningPathProvider.future);
+      if (activePath != null) {
+        ref.read(userPathProvider.notifier).state = activePath;
+      }
 
       ref.invalidate(userStatsProvider);
       ref.invalidate(userProvider);
-      ref.invalidate(activeLearningPathProvider); // ✅ Reload learning path data
 
       if (!mounted) return;
-      context.go('/dashboard');
+      Navigator.of(context).pop(true);
     } catch (e, s) {
       debugPrint('Error generating custom path: $e\n$s');
       setState(() {

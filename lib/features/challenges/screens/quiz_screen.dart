@@ -3,51 +3,81 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:neurobits/services/supabase.dart';
-import 'package:neurobits/services/supabase_challenge_analytics.dart';
-import 'package:neurobits/services/badge_service.dart';
+import 'package:neurobits/core/providers.dart';
+import 'package:neurobits/core/learning_path_providers.dart';
+import 'package:neurobits/services/convex_client_service.dart';
 import '../widgets/quiz_challenge.dart';
 import '../widgets/coding_challenge.dart';
 import '../widgets/input_challenge.dart';
 import 'package:neurobits/features/challenges/screens/session_summary_screen.dart';
-import 'package:neurobits/core/learning_path_providers.dart';
-
-
 
 class AnalyticsBadge extends StatelessWidget {
   final IconData icon;
   final String label;
   final dynamic value;
+  final String? secondaryLabel;
+  final String? secondaryValue;
   final Color color;
   const AnalyticsBadge(
       {super.key,
       required this.icon,
       required this.label,
       required this.value,
-      required this.color});
+      required this.color,
+      this.secondaryLabel,
+      this.secondaryValue});
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final hasSecondary = secondaryValue != null && secondaryValue!.isNotEmpty;
     return Card(
-      color: color.withOpacity(0.10),
+      color: colorScheme.surfaceContainerHighest.withOpacity(0.22),
       elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        child: Column(
-          children: [
-            Icon(icon, color: color, size: 28),
-            const SizedBox(height: 4),
-            Text('$value',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w600)),
-            Text(label,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: Colors.grey[700])),
-          ],
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 112),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                  ),
+                  const Spacer(),
+                  Icon(icon, color: color, size: 18),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text('$value',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleLarge
+                      ?.copyWith(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 4),
+              Visibility(
+                visible: hasSecondary,
+                maintainState: true,
+                maintainAnimation: true,
+                maintainSize: true,
+                child: Text(
+                  hasSecondary
+                      ? '${secondaryLabel ?? 'Avg'} $secondaryValue'
+                      : ' ',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -73,8 +103,8 @@ class QuizReview extends StatelessWidget {
     }
     switch (type) {
       case 'mcq':
-        final options = q['options'] as List<dynamic>?;
-        if (options != null) {
+        final options = q['options'] != null ? toList(q['options']) : null;
+        if (options != null && options.isNotEmpty) {
           if (correctAnswer is int &&
               correctAnswer >= 0 &&
               correctAnswer < options.length) {
@@ -424,11 +454,17 @@ class AIChallengeScreen extends ConsumerStatefulWidget {
   final String? quizName;
   final List<Map<String, dynamic>> questions;
   final bool timedMode;
+
+  final String? challengeId;
+
+  final String? userPathChallengeId;
   const AIChallengeScreen({
     required this.topic,
     required this.questions,
     this.quizName,
     this.timedMode = true,
+    this.challengeId,
+    this.userPathChallengeId,
     super.key,
   });
   @override
@@ -450,76 +486,310 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
   double _finalAccuracy = 0.0;
   int _finalTimeTaken = 0;
 
+  IconData _badgeIcon(String? iconKey) {
+    final key = (iconKey ?? '').toLowerCase().trim();
+    switch (key) {
+      case 'star':
+        return Icons.star;
+      case 'trophy':
+        return Icons.emoji_events;
+      case 'medal':
+        return Icons.military_tech;
+      case 'crown':
+        return Icons.workspace_premium;
+      case 'fire':
+      case 'flame':
+        return Icons.local_fire_department;
+      case 'check':
+      case 'check-circle':
+        return Icons.check_circle;
+      case 'zap':
+      case 'bolt':
+        return Icons.bolt;
+      default:
+        return Icons.emoji_events;
+    }
+  }
+
   Future<void> _showBadgePopup(List<Map<String, dynamic>> newBadges) async {
-    if (newBadges.isEmpty) return;
+    if (newBadges.isEmpty || !mounted) return;
     await showDialog(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          title: const Text('Achievement Unlocked!'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ...newBadges.map((badge) => Row(
-                    children: [
-                      Text(badge['badge']['icon'] ?? '🏅',
-                          style: const TextStyle(fontSize: 28)),
-                      const SizedBox(width: 10),
-                      Expanded(
-                          child: Text(badge['badge']['name'] ?? '',
-                              style: Theme.of(context).textTheme.titleMedium)),
-                    ],
-                  )),
-              const SizedBox(height: 10),
-              Text('Check your profile to see all badges!'),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('OK'),
+        final colorScheme = Theme.of(context).colorScheme;
+        return Dialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: colorScheme.surface,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: colorScheme.primary.withOpacity(0.18),
+              ),
             ),
-          ],
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: colorScheme.primary.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child:
+                          Icon(Icons.emoji_events, color: colorScheme.primary),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Achievement unlocked',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'You just earned ${newBadges.length} badge${newBadges.length == 1 ? '' : 's'}.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                ),
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: newBadges.map((badge) {
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: colorScheme.surfaceContainerHighest.withOpacity(0.35),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: colorScheme.outline.withOpacity(0.2),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(_badgeIcon(badge['icon']), size: 16),
+                          const SizedBox(width: 6),
+                          Text(
+                            badge['name']?.toString() ?? 'New badge',
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelMedium
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  'Check your profile to see all badges.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                ),
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('OK'),
+                  ),
+                ),
+              ],
+            ),
+          ),
         );
       },
     );
   }
 
-  Future<void> _checkAndShowNewBadges(
-      String userId, List<String> oldBadgeIds) async {
-    final userBadges = await BadgeService.getUserBadges(userId);
-    final newBadges =
-        userBadges.where((b) => !oldBadgeIds.contains(b['badge_id'])).toList();
-    if (newBadges.isNotEmpty) {
-      await _showBadgePopup(newBadges);
-    }
-  }
-
-  void _onChallengeCompleted(
-      bool success, int timeTaken, double accuracy) async {
-    final user = SupabaseService.client.auth.currentUser;
-    if (user == null) return;
-    final oldBadges = await BadgeService.getUserBadges(user.id);
-    final oldBadgeIds = oldBadges.map((b) => b['badge_id'].toString()).toList();
-    int correctCount = 0;
-    int answeredCount = 0;
-    for (int i = 0; i < widget.questions.length; i++) {
-      if (_selectedAnswers[i] != null) answeredCount++;
-      if (_selectedAnswers[i] != null &&
-          QuizReview.isAnswerCorrect(
-              widget.questions[i], _selectedAnswers[i])) {
-        correctCount++;
+  int _resolveSelectedOptionIndex(int questionIndex) {
+    final selected = _selectedAnswers[questionIndex];
+    if (selected is int) return selected;
+    if (selected is String) {
+      final optionsRaw = widget.questions[questionIndex]['options'];
+      if (optionsRaw is List) {
+        final options = optionsRaw
+            .map((e) => e is String
+                ? e
+                : (e is Map ? e['text']?.toString() : e?.toString()))
+            .whereType<String>()
+            .toList();
+        final idx = options.indexOf(selected);
+        if (idx >= 0) return idx;
       }
     }
-    final safeAccuracy = answeredCount > 0 ? correctCount / answeredCount : 0.0;
-    await SupabaseService.saveProgress(
-      widget.quizName ?? widget.topic,
-      success,
-      timeTaken,
-      safeAccuracy,
-      aiQuestions: widget.questions,
-    );
-    await _checkAndShowNewBadges(user.id, oldBadgeIds);
+    return 0;
+  }
+
+  Future<void> _recordProgress() async {
+    try {
+      final challengeId = widget.challengeId;
+      final hasChallengeId = challengeId != null && challengeId.isNotEmpty;
+      final badgeRepo = ref.read(badgeRepositoryProvider);
+      Set<String?> oldBadgeIds = {};
+      if (hasChallengeId) {
+        final oldBadges = await badgeRepo.listMine();
+        oldBadgeIds = oldBadges.map((b) {
+          final badge = b['badge'] as Map<String, dynamic>?;
+          return badge?['_id']?.toString();
+        }).toSet();
+      }
+
+      final answers = <Map<String, dynamic>>[];
+      final perQuestionSeconds = widget.questions.isEmpty
+          ? 0
+          : (_finalTimeTaken / widget.questions.length).round();
+      for (int i = 0; i < widget.questions.length; i++) {
+        final isCorrect = QuizReview.isAnswerCorrect(
+            widget.questions[i], _selectedAnswers[i]);
+        answers.add({
+          'questionIndex': i,
+          'selectedOption': _resolveSelectedOptionIndex(i),
+          'isCorrect': isCorrect,
+          'timeSpentSeconds': perQuestionSeconds,
+        });
+      }
+
+      if (hasChallengeId) {
+        final progressRepo = ref.read(progressRepositoryProvider);
+        await progressRepo.recordQuizCompletion(
+          challengeId: challengeId,
+          completed: _finalAccuracy >= 0.75,
+          attempts: 1,
+          timeTakenSeconds: _finalTimeTaken,
+          accuracy: _finalAccuracy,
+          answers: answers,
+        );
+      }
+
+      final userPathChallengeId = widget.userPathChallengeId;
+      if (userPathChallengeId != null && userPathChallengeId.isNotEmpty) {
+        try {
+          final pathRepo = ref.read(pathRepositoryProvider);
+          await pathRepo.markPathChallengeComplete(
+            challengeId: userPathChallengeId,
+            accuracy: _finalAccuracy,
+          );
+          final userPath = ref.read(userPathProvider);
+          final userPathId = userPath?['user_path_id']?.toString() ??
+              userPath?['_id']?.toString();
+          if (userPathId != null) {
+            ref.invalidate(userPathChallengesProvider(userPathId));
+          }
+        } catch (e) {
+          debugPrint('Error marking path challenge complete: $e');
+          final message = e.toString();
+          if (mounted && message.contains('Path challenge not found')) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                    'That path challenge no longer exists. Refreshing your path.'),
+              ),
+            );
+            ref.invalidate(userPathProvider);
+            ref.invalidate(activeLearningPathProvider);
+            final userPath = ref.read(userPathProvider);
+            final userPathId = userPath?['user_path_id']?.toString() ??
+                userPath?['_id']?.toString();
+            if (userPathId != null) {
+              try {
+                final pathRepo = ref.read(pathRepositoryProvider);
+                final challenges = await pathRepo.listChallengesForPath(
+                    userPathId: userPathId);
+                final topic = widget.topic.toLowerCase().trim();
+                final fallback = challenges.firstWhere(
+                  (c) {
+                    final chTopic =
+                        c['topic']?.toString().toLowerCase().trim() ?? '';
+                    return chTopic == topic && c['completed'] != true;
+                  },
+                  orElse: () => <String, dynamic>{},
+                );
+                if (fallback.isNotEmpty && fallback['_id'] != null) {
+                  await pathRepo.markPathChallengeComplete(
+                    challengeId: fallback['_id']?.toString() ?? '',
+                    accuracy: _finalAccuracy,
+                  );
+                  ref.invalidate(userPathChallengesProvider(userPathId));
+                }
+              } catch (fallbackError) {
+                debugPrint('Fallback path completion failed: $fallbackError');
+              }
+            }
+          }
+        }
+      }
+
+      final newBadges = await badgeRepo.listMine();
+      final newlyEarned = newBadges.where((b) {
+        final badge = b['badge'] as Map<String, dynamic>?;
+        final id = badge?['_id']?.toString();
+        return id != null && !oldBadgeIds.contains(id);
+      }).toList();
+
+      if (hasChallengeId && newlyEarned.isNotEmpty && mounted) {
+        final badgeInfoList = newlyEarned.map((b) {
+          final badge = b['badge'] as Map<String, dynamic>? ?? {};
+          return badge;
+        }).toList();
+        await _showBadgePopup(badgeInfoList);
+      }
+
+      try {
+        final userPathChallengeId = widget.userPathChallengeId;
+        if (userPathChallengeId != null && userPathChallengeId.isNotEmpty) {
+          ref.invalidate(userPathProvider);
+          ref.invalidate(activeLearningPathProvider);
+          final userPath = ref.read(userPathProvider);
+          final userPathId = userPath?['user_path_id']?.toString() ??
+              userPath?['_id']?.toString();
+          if (userPathId != null) {
+            ref.invalidate(userPathChallengesProvider(userPathId));
+          }
+        }
+      } catch (e) {
+        debugPrint('Error refreshing path state after quiz: $e');
+      }
+
+      ref.invalidate(userStatsProvider);
+
+      try {
+        final isPathQuiz = widget.userPathChallengeId != null &&
+            widget.userPathChallengeId!.isNotEmpty;
+        final activePath = await ref.read(activeLearningPathProvider.future);
+        if (!isPathQuiz && activePath == null) {
+          ref.read(pendingRecommendationsRefreshProvider.notifier).state = true;
+        }
+      } catch (e) {
+        debugPrint('Error checking active path for rec refresh: $e');
+      }
+    } catch (e) {
+      debugPrint('Error recording progress: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to save progress: $e')),
+        );
+      }
+    }
   }
 
   @override
@@ -542,13 +812,17 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
           goRouterState.extra is Map<String, dynamic>) {
         final extra = goRouterState.extra as Map<String, dynamic>;
         if (extra['timePerQuestion'] != null) {
-          timeFromExtra = extra['timePerQuestion'] as int?;
+          timeFromExtra = extra['timePerQuestion'] is num
+              ? (extra['timePerQuestion'] as num).toInt()
+              : null;
         }
       }
       int? timeFromArgs;
       final args = ModalRoute.of(context)?.settings.arguments;
       if (args is Map && args['timePerQuestion'] != null) {
-        timeFromArgs = args['timePerQuestion'] as int?;
+        timeFromArgs = args['timePerQuestion'] is num
+            ? (args['timePerQuestion'] as num).toInt()
+            : null;
       }
       _perQuestionTime =
           timeFromExtra ?? timeFromArgs ?? (widget.timedMode ? 30 : 0);
@@ -592,6 +866,7 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
     if (_disposed || _completed) return;
     if (_currentQuestionIndex < widget.questions.length) {
       _selectedAnswers[_currentQuestionIndex] = answer;
+      widget.questions[_currentQuestionIndex]['userAnswer'] = answer;
     }
     if (_currentQuestionIndex < widget.questions.length - 1) {
       if (mounted) {
@@ -607,17 +882,18 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
       if (_isSubmitting) return;
       _isSubmitting = true;
       _timer?.cancel();
-      final user = SupabaseService.client.auth.currentUser;
       int correctCount = 0;
       int answeredCount = 0;
       for (int i = 0; i < widget.questions.length; i++) {
         if (_selectedAnswers[i] != null) answeredCount++;
         if (_selectedAnswers[i] != null &&
-            QuizReview.isAnswerCorrect(widget.questions[i], _selectedAnswers[i])) {
+            QuizReview.isAnswerCorrect(
+                widget.questions[i], _selectedAnswers[i])) {
           correctCount++;
         }
       }
-      final safeAccuracy = answeredCount > 0 ? (correctCount / answeredCount) : 0.0;
+      final safeAccuracy =
+          answeredCount > 0 ? (correctCount / answeredCount) : 0.0;
       final timeTaken = DateTime.now().difference(_startTime).inSeconds;
       if (mounted) {
         setState(() {
@@ -628,94 +904,19 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
           _finalTimeTaken = timeTaken;
         });
       }
-      if (user != null) {
-        try {
-          await SupabaseService.saveQuizProgress(
-            widget.quizName ?? widget.topic,
-            widget.quizName ?? widget.topic,
-            widget.questions,
-            _finalCorrectCount >= (widget.questions.length / 2),
-            _finalTimeTaken,
-            _finalAccuracy,
-            correctCount: _finalCorrectCount,
-            totalCount: widget.questions.length,
-          );
-          try {
-            final userPath = ref.read(userPathProvider);
-            final bool advanced =
-                await SupabaseService.checkAndAdvancePathStep(user.id);
-            if (mounted) {
-              if (advanced) {
-                debugPrint("Quiz completion triggered path advancement!");
-                ref.invalidate(userPathProvider);
-                ref.invalidate(activeLearningPathProvider(user.id));
-                ref.invalidate(userPathChallengesProvider);
-              } else {
-                if (userPath != null) {
-                  double passThreshold = 0.75;
-                  if (userPath['metadata'] is Map<String, dynamic> &&
-                      (userPath['metadata'] as Map<String, dynamic>)['threshold'] != null) {
-                    passThreshold = ((userPath['metadata'] as Map<String, dynamic>)['threshold'] as num)
-                        .toDouble();
-                  }
-                  if (passThreshold < 0.5) passThreshold = 0.5;
-                  showDialog(
-                    context: context,
-                    builder: (dialogCtx) {
-                      return AlertDialog(
-                        title: const Text('Topic Incomplete'),
-                        content: Text(
-                            'Your accuracy was ${(safeAccuracy * 100).toStringAsFixed(1)}%, which is below the required ${(passThreshold * 100).round()}%. Would you like to retry?'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.of(dialogCtx).pop(),
-                            child: const Text('Cancel'),
-                          ),
-                          TextButton(
-                            onPressed: () {
-                              Navigator.of(dialogCtx).pop();
-                              if (!mounted) return;
-                              setState(() {
-                                _completed = false;
-                                _currentQuestionIndex = 0;
-                                _selectedAnswers =
-                                    List<dynamic>.filled(widget.questions.length, null);
-                                _startTime = DateTime.now();
-                                if (widget.timedMode) {
-                                  _secondsRemaining = _perQuestionTime!;
-                                  _startTimer();
-                                }
-                              });
-                            },
-                            child: const Text('Retry'),
-                          ),
-                        ],
-                      );
-                    },
-                  );
-                }
-              }
-            }
-          } catch (e) {
-            debugPrint("Error checking for path advancement after quiz: $e");
-          }
-        } catch (error) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Oops! Failed to save progress: $error')),
-            );
-          }
-        }
-      } else {
-        debugPrint("User not logged in, skipping progress save and path check.");
+
+      await _recordProgress();
+      if (mounted) {
+        setState(() {});
       }
+
       if (_selectedAnswers.isEmpty || widget.questions.isEmpty) {
-        debugPrint('WARNING: selectedAnswers or questions are empty at quiz end!');
+        debugPrint(
+            'WARNING: selectedAnswers or questions are empty at quiz end!');
       }
       _isSubmitting = false;
     }
   }
-
 
   Widget _buildChallenge() {
     final currentQuestion = widget.questions[_currentQuestionIndex];
@@ -745,10 +946,25 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
                 builder: (context) {
                   switch (type) {
                     case 'mcq':
+                      final optionsRaw = currentQuestion['options'];
+                      final options = optionsRaw is List
+                          ? optionsRaw
+                              .map((e) => e is String
+                                  ? e
+                                  : (e is Map
+                                      ? e['text']?.toString()
+                                      : e?.toString()))
+                              .whereType<String>()
+                              .toList()
+                          : <String>[];
+                      if (options.isEmpty) {
+                        return const Center(
+                            child: Text('Invalid multiple-choice options'));
+                      }
                       return QuizChallenge(
                         key: ValueKey(_currentQuestionIndex),
                         question: currentQuestion['question'],
-                        options: List<String>.from(currentQuestion['options']),
+                        options: options,
                         isDisabled: _isSubmitting,
                         onSubmitted: (answer) {
                           if (_isSubmitting) return;
@@ -813,160 +1029,256 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
     );
   }
 
-
   Widget _buildResult() {
+    final String? challengeId = widget.challengeId;
+    final String topicName = widget.topic.trim();
+
     return Builder(
       builder: (context) {
-        final String? challengeId = widget.questions.isNotEmpty
-            ? widget.questions[0]['id']?.toString()
-            : null;
-        return FutureBuilder<Map<String, dynamic>?>(
-          future: (SupabaseService.client.auth.currentUser != null &&
-                  challengeId != null)
-              ? ChallengeAnalyticsService.getChallengeAnalytics(
-                  userId: SupabaseService.client.auth.currentUser!.id,
-                  challengeId: challengeId,
-                )
-              : Future.value(null),
-          builder: (context, snapshot) {
-            final analytics = snapshot.data ?? {};
-            final bestTime = analytics['best_time'] ?? 0;
-            final bestAccuracy = analytics['best_accuracy'] ?? 0.0;
-            return Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Icon(
-                  _finalCorrectCount > (widget.questions.length / 2)
-                      ? Icons.emoji_events
-                      : Icons.sentiment_satisfied,
-                  color: _finalCorrectCount > (widget.questions.length / 2)
-                      ? Colors.amber
-                      : Colors.grey,
-                  size: 64,
+        if (topicName.isNotEmpty) {
+          return FutureBuilder<Map<String, dynamic>>(
+            future: ref
+                .read(progressRepositoryProvider)
+                .getTopicAnalytics(topic: topicName),
+            builder: (context, snapshot) {
+              final analytics = snapshot.data ?? {};
+              return _buildResultContent(analytics);
+            },
+          );
+        }
+        if (challengeId != null && challengeId.isNotEmpty) {
+          return FutureBuilder<Map<String, dynamic>>(
+            future: ref
+                .read(progressRepositoryProvider)
+                .getChallengeAnalytics(challengeId: challengeId),
+            builder: (context, snapshot) {
+              final analytics = snapshot.data ?? {};
+              return _buildResultContent(analytics);
+            },
+          );
+        }
+        return _buildResultContent({});
+      },
+    );
+  }
+
+  Widget _buildResultContent(Map<String, dynamic> analytics) {
+    final avgTimeSeconds = analytics['avgTimeSeconds'] ?? 0;
+    final avgAccuracy = analytics['avgAccuracy'] ?? 0.0;
+    final bestAccuracy = analytics['bestAccuracy'] ?? 0.0;
+    final bestTimeSeconds = analytics['bestTimeSeconds'] ?? 0;
+    final lastAttemptedAt = analytics['lastAttemptedAt'] ?? 0;
+    final totalAttempts = analytics['totalAttempts'] is num
+        ? (analytics['totalAttempts'] as num).toInt()
+        : 0;
+    String? lastAttemptText;
+    if (lastAttemptedAt is num && lastAttemptedAt > 0) {
+      final last = DateTime.fromMillisecondsSinceEpoch(lastAttemptedAt.toInt());
+      final diff = DateTime.now().difference(last);
+      if (diff.inMinutes < 60) {
+        lastAttemptText = '${diff.inMinutes}m ago';
+      } else if (diff.inHours < 24) {
+        lastAttemptText = '${diff.inHours}h ago';
+      } else {
+        lastAttemptText = '${diff.inDays}d ago';
+      }
+    }
+
+    final bestAccuracyText = bestAccuracy is num && totalAttempts > 0
+        ? '${(bestAccuracy * 100).toStringAsFixed(1)}%'
+        : null;
+    final bestTimeText = bestTimeSeconds is num && bestTimeSeconds > 0
+        ? '${bestTimeSeconds.toStringAsFixed(0)}s'
+        : null;
+    final avgTimeText = totalAttempts > 0
+        ? '${(avgTimeSeconds as num).toStringAsFixed(0)}s'
+        : null;
+    final avgAccuracyText = totalAttempts > 0
+        ? '${((avgAccuracy as num) * 100).toStringAsFixed(1)}%'
+        : null;
+
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Icon(
+          _finalCorrectCount > (widget.questions.length / 2)
+              ? Icons.emoji_events
+              : Icons.sentiment_satisfied,
+          color: _finalCorrectCount > (widget.questions.length / 2)
+              ? Colors.amber
+              : Colors.grey,
+          size: 64,
+        ),
+        const SizedBox(height: 18),
+        Text(
+          _finalCorrectCount > (widget.questions.length / 2)
+              ? 'Congratulations!'
+              : 'Good Try!',
+          style: Theme.of(context)
+              .textTheme
+              .headlineSmall
+              ?.copyWith(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          _finalCorrectCount > (widget.questions.length / 2)
+              ? 'You completed the challenge.'
+              : 'You can always try again to improve your score.',
+          style: Theme.of(context).textTheme.bodyLarge,
+        ),
+        const SizedBox(height: 26),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              Expanded(
+                child: AnalyticsBadge(
+                  icon: Icons.check_circle,
+                  label: 'Correct',
+                  value: '$_finalCorrectCount/$_finalAnsweredCount',
+                  secondaryLabel: 'Best',
+                  secondaryValue: bestAccuracyText,
+                  color: Colors.green,
                 ),
-                const SizedBox(height: 18),
-                Text(
-                  _finalCorrectCount > (widget.questions.length / 2)
-                      ? 'Congratulations!'
-                      : 'Good Try!',
-                  style: Theme.of(context)
-                      .textTheme
-                      .headlineSmall
-                      ?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: AnalyticsBadge(
+                  icon: Icons.timer,
+                  label: 'Time',
+                  value: widget.timedMode ? '$_finalTimeTaken s' : '-',
+                  secondaryLabel: 'Avg',
+                  secondaryValue: avgTimeText,
+                  color: Colors.blue,
                 ),
-                const SizedBox(height: 10),
-                Text(
-                  _finalCorrectCount > (widget.questions.length / 2)
-                      ? 'You completed the challenge.'
-                      : 'You can always try again to improve your score.',
-                  style: Theme.of(context).textTheme.bodyLarge,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: AnalyticsBadge(
+                  icon: Icons.bar_chart,
+                  label: 'Accuracy',
+                  value: '${(_finalAccuracy * 100).toStringAsFixed(1)}%',
+                  secondaryLabel: 'Avg',
+                  secondaryValue: avgAccuracyText,
+                  color: Colors.teal,
                 ),
-                const SizedBox(height: 26),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+              ),
+            ],
+          ),
+        ),
+        if (totalAttempts > 0) ...[
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Card(
+              color: Theme.of(context)
+                  .colorScheme
+                  .surfaceContainerHighest
+                  .withOpacity(0.22),
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                child: Row(
                   children: [
-                    AnalyticsBadge(
-                      icon: Icons.check_circle,
-                      label: 'Correct',
-                      value: '$_finalCorrectCount/$_finalAnsweredCount',
-                      color: Colors.green,
+                    Icon(Icons.repeat, color: Colors.deepPurple, size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Attempts',
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
                     ),
-                    const SizedBox(width: 14),
-                    AnalyticsBadge(
-                      icon: Icons.timer,
-                      label: 'Time',
-                      value: widget.timedMode ? '$_finalTimeTaken s' : '-',
-                      color: Colors.blue,
+                    const SizedBox(width: 10),
+                    Text(
+                      '$totalAttempts',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
                     ),
-                    const SizedBox(width: 14),
-                    AnalyticsBadge(
-                      icon: Icons.bar_chart,
-                      label: 'Accuracy',
-                      value: '${(_finalAccuracy * 100).toStringAsFixed(1)}%',
-                      color: Colors.teal,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    AnalyticsBadge(
-                      icon: Icons.repeat,
-                      label: 'Attempts',
-                      value: analytics['attempts'] ?? '-',
-                      color: Colors.deepPurple,
-                    ),
-                    const SizedBox(width: 14),
-                    AnalyticsBadge(
-                      icon: Icons.timer,
-                      label: 'Best Time',
-                      value: bestTime != 0 ? '${bestTime}s' : '-',
-                      color: Colors.blue,
-                    ),
-                    const SizedBox(width: 14),
-                    AnalyticsBadge(
-                      icon: Icons.bar_chart,
-                      label: 'Best Accuracy',
-                      value: '${(bestAccuracy * 100).toStringAsFixed(1)}%',
-                      color: Colors.teal,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 32),
-                ElevatedButton(
-                  onPressed: () async {
-                    await Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => SessionSummaryScreen(
-                          questions: widget.questions,
-                          selectedAnswers: _selectedAnswers,
-                          totalTime: _finalTimeTaken,
-                          accuracy: _finalAccuracy,
-                          topic: widget.topic,
-                          quizName: widget.quizName,
-                          userId: SupabaseService.client.auth.currentUser?.id,
+                    const Spacer(),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          'Best acc ${bestAccuracyText ?? '--'}',
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ),
                         ),
-                      ),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 12),
-                    backgroundColor: Colors.deepPurple,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: const Text('View Summary'),
+                        Text(
+                          'Best time ${bestTimeText ?? '--'}',
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ),
+                        ),
+                        Text(
+                          'Last ${lastAttemptText ?? '--'}',
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 16),
-                ElevatedButton(
-                  onPressed: () {
-                    _onChallengeCompleted(
-                        _finalCorrectCount > (widget.questions.length / 2),
-                        _finalTimeTaken,
-                        _finalAccuracy);
-                    context.pop();
-                  },
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 12),
-                    backgroundColor:
-                        _finalCorrectCount > (widget.questions.length / 2)
-                            ? Colors.green
-                            : null,
-                    foregroundColor:
-                        _finalCorrectCount > (widget.questions.length / 2)
-                            ? Colors.white
-                            : null,
-                  ),
-                  child: Text('Back to Dashboard'),
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 32),
+        ElevatedButton(
+          onPressed: () async {
+            await Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => SessionSummaryScreen(
+                  questions: widget.questions,
+                  selectedAnswers: _selectedAnswers,
+                  totalTime: _finalTimeTaken,
+                  accuracy: _finalAccuracy,
+                  topic: widget.topic,
+                  quizName: widget.quizName,
                 ),
-              ],
+              ),
             );
           },
-        );
-      },
+          style: ElevatedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            backgroundColor: Colors.deepPurple,
+            foregroundColor: Colors.white,
+          ),
+          child: const Text('View Summary'),
+        ),
+        const SizedBox(height: 16),
+        ElevatedButton(
+          onPressed: () {
+            context.pop();
+          },
+          style: ElevatedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            backgroundColor: _finalCorrectCount > (widget.questions.length / 2)
+                ? Colors.green
+                : null,
+            foregroundColor: _finalCorrectCount > (widget.questions.length / 2)
+                ? Colors.white
+                : null,
+          ),
+          child: Text('Back to Dashboard'),
+        ),
+      ],
     );
   }
 
@@ -1020,6 +1332,8 @@ class ChallengeScreen extends AIChallengeScreen {
     required super.questions,
     super.quizName,
     super.timedMode,
+    super.challengeId,
+    super.userPathChallengeId,
     super.key,
   });
 }

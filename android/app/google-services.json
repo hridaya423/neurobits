@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "468907860173",
+    "project_id": "neurobits-b6768",
+    "storage_bucket": "neurobits-b6768.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:468907860173:android:165d4def660fb7610a8984",
+        "android_client_info": {
+          "package_name": "com.example.neurobits"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyArvyQyAQhJel0vfPjDkSXqY_eZJcP4MDY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

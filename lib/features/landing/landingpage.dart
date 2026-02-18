@@ -14,6 +14,7 @@ class _NewLandingPageState extends ConsumerState<NewLandingPage>
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
   late Animation<double> _scaleAnimation;
+
   @override
   void initState() {
     super.initState();
@@ -55,7 +56,6 @@ class _NewLandingPageState extends ConsumerState<NewLandingPage>
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final brandPurple = Theme.of(context).colorScheme.primary;
-    final brandPurpleLight = Color.lerp(brandPurple, Colors.white, 0.3)!;
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
@@ -140,7 +140,7 @@ class _NewLandingPageState extends ConsumerState<NewLandingPage>
                           icon: Icons.school,
                           color: isDark
                               ? Colors.lightBlueAccent
-                              : Color(0xFF4F8FFF),
+                              : const Color(0xFF4F8FFF),
                           title: 'Learn Any Topic',
                           subtitle:
                               'AI-curated quizzes for every interest and level.',
@@ -148,8 +148,9 @@ class _NewLandingPageState extends ConsumerState<NewLandingPage>
                         const SizedBox(height: 16),
                         _LandingFeatureTile(
                           icon: Icons.emoji_events,
-                          color:
-                              isDark ? Colors.greenAccent : Color(0xFF43D19E),
+                          color: isDark
+                              ? Colors.greenAccent
+                              : const Color(0xFF43D19E),
                           title: 'Track Progress & Earn Points',
                           subtitle:
                               'Set streak goals and collect rewards as you grow.',
@@ -161,9 +162,7 @@ class _NewLandingPageState extends ConsumerState<NewLandingPage>
                       children: [
                         Expanded(
                           child: OutlinedButton(
-                            onPressed: () {
-                              context.go('/auth/login');
-                            },
+                            onPressed: () => context.go('/login'),
                             style: OutlinedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 18),
                               textStyle: const TextStyle(
@@ -180,9 +179,7 @@ class _NewLandingPageState extends ConsumerState<NewLandingPage>
                         const SizedBox(width: 18),
                         Expanded(
                           child: ElevatedButton(
-                            onPressed: () {
-                              context.go('/auth/signup');
-                            },
+                            onPressed: () => context.go('/login?signup=true'),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: brandPurple,
                               foregroundColor: Colors.white,

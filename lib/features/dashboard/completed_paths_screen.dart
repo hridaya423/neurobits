@@ -2,16 +2,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers.dart';
 import '../../core/learning_path_providers.dart';
+
 class CompletedPathsScreen extends ConsumerWidget {
   const CompletedPathsScreen({super.key});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final user = ref.watch(userProvider).value;
+    final userAsync = ref.watch(userProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Completed Learning Paths')),
-      body: user == null
-          ? const Center(child: Text('Not logged in'))
-          : ref.watch(completedPathsProvider(user['id'])).when(
+      body: userAsync.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) => Center(child: Text('Error: $e')),
+        data: (user) {
+          if (user == null) {
+            return const Center(child: Text('Not logged in'));
+          }
+          final userId = user['_id']?.toString() ?? user['id']?.toString();
+          if (userId == null) {
+            return const Center(child: Text('User ID not found'));
+          }
+          return ref.watch(completedPathsProvider(userId)).when(
                 loading: () => const Center(child: CircularProgressIndicator()),
                 error: (e, _) => Center(child: Text('Error: $e')),
                 data: (paths) {
@@ -22,8 +32,12 @@ class CompletedPathsScreen extends ConsumerWidget {
                     itemCount: paths.length,
                     separatorBuilder: (_, __) => const Divider(),
                     itemBuilder: (context, i) {
-                      final path = paths[i]['learning_paths'] ?? {};
-                      final completedAt = paths[i]['completed_at'];
+                      final entry = Map<String, dynamic>.from(paths[i]);
+                      final path = <String, dynamic>{
+                        'name': entry['name'] ?? 'Unnamed Path',
+                        'description': entry['description'] ?? '',
+                      };
+                      final completedAt = entry['completed_at'];
                       return ListTile(
                         title: Text(path['name'] ?? 'Unnamed Path'),
                         subtitle: Text(path['description'] ?? ''),
@@ -37,7 +51,7 @@ class CompletedPathsScreen extends ConsumerWidget {
                             MaterialPageRoute(
                               builder: (_) => CompletedPathDetailScreen(
                                 path: path,
-                                userPath: paths[i],
+                                userPath: entry,
                               ),
                             ),
                           );
@@ -46,10 +60,13 @@ class CompletedPathsScreen extends ConsumerWidget {
                     },
                   );
                 },
-              ),
+              );
+        },
+      ),
     );
   }
 }
+
 class CompletedPathDetailScreen extends StatelessWidget {
   final Map<String, dynamic> path;
   final Map<String, dynamic> userPath;
@@ -76,10 +93,13 @@ class CompletedPathDetailScreen extends StatelessWidget {
             Expanded(
               child: Consumer(
                 builder: (context, ref, _) {
-                  return ref
-                      .watch(
-                          userPathChallengesProvider(userPath['id'].toString()))
-                      .when(
+                  final userPathId = userPath['user_path_id']?.toString() ??
+                      userPath['id']?.toString() ??
+                      '';
+                  if (userPathId.isEmpty) {
+                    return const Text('No path ID found.');
+                  }
+                  return ref.watch(userPathChallengesProvider(userPathId)).when(
                         loading: () =>
                             const Center(child: CircularProgressIndicator()),
                         error: (e, _) => Center(child: Text('Error: $e')),

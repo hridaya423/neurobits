@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:neurobits/services/convex_client_service.dart';
 import '../../core/learning_path_providers.dart';
-import '../../services/supabase.dart';
+import '../../core/providers.dart';
 import 'package:neurobits/services/ai_service.dart';
 
 class TweakLearningPathScreen extends ConsumerStatefulWidget {
@@ -21,13 +23,20 @@ class _TweakLearningPathScreenState
   double _emphasisWeight = 0.0;
   late double _threshold;
   bool _loading = false;
+  Map<String, dynamic>? _userPath;
+
   @override
   void initState() {
     super.initState();
     final userPath = ref.read(userPathProvider);
+    _userPath = userPath;
     if (userPath != null) {
-      _durationDays = userPath['duration_days'] as int? ?? 7;
-      _dailyMinutes = userPath['daily_minutes'] as int? ?? 10;
+      _durationDays = userPath['duration_days'] is num
+          ? (userPath['duration_days'] as num).toInt()
+          : 7;
+      _dailyMinutes = userPath['daily_minutes'] is num
+          ? (userPath['daily_minutes'] as num).toInt()
+          : 10;
       _level = userPath['level'] as String? ?? 'Intermediate';
       final Map<String, dynamic>? thresholdMeta =
           userPath['metadata'] as Map<String, dynamic>?;
@@ -63,64 +72,64 @@ class _TweakLearningPathScreenState
     setState(() => _loading = true);
     final userPath = ref.read(userPathProvider);
     if (userPath == null) return;
-    final userPathId = userPath['user_path_id'] as String;
-    Map<String, dynamic>? metadata =
-        userPath['metadata'] as Map<String, dynamic>?;
-    metadata = metadata != null ? Map<String, dynamic>.from(metadata) : {};
-    if (_emphasisTopic != null) {
+    Map<String, dynamic> metadata =
+        userPath['metadata'] as Map<String, dynamic>? ?? {};
+    metadata = Map<String, dynamic>.from(metadata);
+    if (_emphasisTopic != null && _emphasisTopic!.isNotEmpty) {
       metadata['emphasis'] = {_emphasisTopic!: _emphasisWeight};
     } else {
       metadata.remove('emphasis');
     }
     metadata['threshold'] = _threshold;
     try {
-      await SupabaseService.client.from('user_learning_paths').update({
-        'duration_days': _durationDays,
-        'daily_minutes': _dailyMinutes,
-        'level': _level,
-        'ai_path_json': metadata,
-      }).eq('id', userPathId);
-      if (_emphasisTopic?.isNotEmpty ?? false) {
-        final aiResponse = await AIService.generateLearningPath(
-          _emphasisTopic!,
-          _level,
-          _durationDays,
-          _dailyMinutes,
-        );
-        final List<dynamic> newPath = aiResponse['path'] ?? [];
-        final existingStatuses = await SupabaseService.client
-            .from('user_path_challenges')
-            .select('day, completed')
-            .eq('user_path_id', userPathId);
-        final Map<int, bool> statusMap = {
-          for (var c in existingStatuses)
-            (c['day'] as int): (c['completed'] as bool? ?? false)
-        };
-        await SupabaseService.client
-            .from('user_path_challenges')
-            .delete()
-            .eq('user_path_id', userPathId);
-        for (final step in newPath) {
-          await SupabaseService.client.from('user_path_challenges').insert({
-            'user_path_id': userPathId,
-            'day': step['day'],
-            'topic': step['topic'],
-            'challenge_type': step['challenge_type'] ?? 'practice',
-            'title': step['title'],
-            'description': step['description'],
-            'completed': statusMap[step['day']] ?? false,
-          });
-        }
-      }
+      final pathTopic = (_emphasisTopic?.isNotEmpty ?? false)
+          ? _emphasisTopic!
+          : (_userPath?['name']?.toString() ??
+              _userPath?['metadata']?['topic']?.toString() ??
+              'General');
+
+      final aiResponse = await AIService.generateLearningPath(
+        pathTopic,
+        _level,
+        _durationDays,
+        _dailyMinutes,
+      );
+      final newPathSteps = aiResponse['path'] ?? [];
+      final String? pathDescription =
+          aiResponse['path_description']?.toString();
+
+      final aiPathData = <String, dynamic>{
+        'path': newPathSteps,
+        'path_description': pathDescription,
+        'metadata': metadata,
+      };
+      final String aiPathJson = jsonEncode(aiPathData);
+      final pathRepo = ref.read(pathRepositoryProvider);
+      await pathRepo.tweakActivePathFromAi(
+        durationDays: _durationDays,
+        dailyMinutes: _dailyMinutes,
+        aiPathJson: aiPathJson,
+        pathDescription: pathDescription,
+      );
       final updatedPath = {
         ...userPath,
         'duration_days': _durationDays,
         'daily_minutes': _dailyMinutes,
         'level': _level,
-        'ai_path_json': metadata,
+        'ai_path_json': aiPathJson,
         'metadata': metadata,
       };
       ref.read(userPathProvider.notifier).state = updatedPath;
+      ref.invalidate(activeLearningPathProvider);
+      final userPathId =
+          userPath['_id']?.toString() ?? userPath['user_path_id']?.toString();
+      if (userPathId != null) {
+        ref.invalidate(userPathChallengesProvider(userPathId));
+      }
+      final refreshed = await ref.refresh(activeLearningPathProvider.future);
+      if (refreshed != null) {
+        ref.read(userPathProvider.notifier).state = refreshed;
+      }
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {
@@ -163,8 +172,8 @@ class _TweakLearningPathScreenState
   Widget build(BuildContext context) {
     final userPath = ref.watch(userPathProvider);
     final topicsList = <String>[];
-    if (userPath != null && userPath['topics'] is List) {
-      for (var t in userPath['topics'] as List) {
+    if (userPath != null && isConvexList(userPath['topics'])) {
+      for (var t in toList(userPath['topics'])) {
         final topicName = t['topic'] as String?;
         if (topicName != null) topicsList.add(topicName);
       }

@@ -36,6 +36,34 @@ class LaTeXText extends StatelessWidget {
   String _formatText(String content) {
     String formatted = content;
 
+    formatted = formatted.replaceAll('\\\\', '\\');
+
+    formatted = formatted.replaceAll(r'\(', '');
+    formatted = formatted.replaceAll(r'\)', '');
+    formatted = formatted.replaceAll(r'\[', '');
+    formatted = formatted.replaceAll(r'\]', '');
+    formatted = formatted.replaceAll(r'$$', '');
+
+    formatted = formatted.replaceAllMapped(
+      RegExp(r'\\text\{([^}]*)\}'),
+      (match) => match.group(1) ?? '',
+    );
+    formatted = formatted.replaceAllMapped(
+      RegExp(r'\\frac\{([^}]+)\}\{([^}]+)\}'),
+      (match) => '${match.group(1)}/${match.group(2)}',
+    );
+    formatted = formatted.replaceAllMapped(
+      RegExp(r'\\sqrt\{([^}]+)\}'),
+      (match) => '√(${match.group(1)})',
+    );
+    formatted = formatted.replaceAllMapped(
+      RegExp(r'\\sqrt\s*([A-Za-z0-9])'),
+      (match) => '√(${match.group(1)})',
+    );
+
+    formatted = formatted.replaceAll(r'\_', '_');
+    formatted = formatted.replaceAll(r'\%', '%');
+
     formatted = formatted.replaceAllMapped(
       RegExp(r'([A-Za-z])_\{?(\d+)\}?'),
       (match) => '${match.group(1)}${_getSubscript(match.group(2)!)}',
@@ -45,14 +73,10 @@ class LaTeXText extends StatelessWidget {
       (match) => '${match.group(1)}${_getSubscript(match.group(2)!)}',
     );
 
-    formatted = formatted.replaceAllMapped(
-      RegExp(r'([A-Za-z\d])(\^)\{?(\d+)\}?'),
-      (match) => '${match.group(1)}${_getSuperscript(match.group(3)!)}',
-    );
-
     final symbolReplacements = {
       r'\rightarrow': '→',
       r'\leftarrow': '←',
+      r'\cdot': '·',
       r'\pi': 'π',
       r'\alpha': 'α',
       r'\beta': 'β',
@@ -75,12 +99,13 @@ class LaTeXText extends StatelessWidget {
       r'\equiv': '≡',
       r'\subset': '⊂',
       r'\supset': '⊃',
-      r'\in': '∈',
       r'\notin': '∉',
+      r'\in': '∈',
       r'\cup': '∪',
       r'\cap': '∩',
       r'\emptyset': '∅',
-      r'\sqrt': '√',
+      r'\max': 'max',
+      r'\min': 'min',
       '-->': '→',
       '->': '→',
     };
@@ -89,30 +114,19 @@ class LaTeXText extends StatelessWidget {
       formatted = formatted.replaceAll(latex, unicode);
     });
 
-    formatted = formatted.replaceAll(r'\(', '');
-    formatted = formatted.replaceAll(r'\)', '');
-    formatted = formatted.replaceAll(r'\[', '');
-    formatted = formatted.replaceAll(r'\]', '');
-    formatted = formatted.replaceAll(r'$$', '');
-
     formatted = formatted.replaceAllMapped(
       RegExp(r'(?<!\$)\$([^$]+)\$(?!\$)'),
       (match) => match.group(1)!,
     );
 
     formatted = formatted.replaceAllMapped(
-      RegExp(r'\text\{([^}]+)\}'),
-      (match) => match.group(1)!,
+      RegExp(r'([A-Za-z\d\)])(\^)\{?(\d+)\}?'),
+      (match) => '${match.group(1)}${_getSuperscript(match.group(3)!)}',
     );
 
     formatted = formatted.replaceAllMapped(
-      RegExp(r'\frac\{([^}]+)\}\{([^}]+)\}'),
-      (match) => '${match.group(1)}/${match.group(2)}',
-    );
-
-    formatted = formatted.replaceAllMapped(
-      RegExp(r'\sqrt\{([^}]+)\}'),
-      (match) => '√(${match.group(1)})',
+      RegExp(r'\\([A-Za-z]+)'),
+      (match) => match.group(1) ?? '',
     );
 
     return formatted;

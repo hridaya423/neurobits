@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
-import 'package:neurobits/services/supabase.dart';
+import 'package:neurobits/services/auth_service.dart';
+import 'package:neurobits/services/convex_client_service.dart';
 
 class SplashScreen extends StatefulWidget {
   final VoidCallback onFinish;
@@ -26,7 +27,7 @@ class _SplashScreenState extends State<SplashScreen>
       final stopwatch = Stopwatch()..start();
       try {
         await Future.wait(<Future<void>>[
-          _prefetchUserData(context),
+          _prefetchUserData(),
         ]).timeout(const Duration(seconds: 5), onTimeout: () => <void>[]);
       } catch (_) {}
       final elapsed = stopwatch.elapsed.inMilliseconds;
@@ -43,45 +44,14 @@ class _SplashScreenState extends State<SplashScreen>
     });
   }
 
-  Future<void> _prefetchUserData(BuildContext context) async {
+  Future<void> _prefetchUserData() async {
     try {
-      final userId = SupabaseService.client.auth.currentUser?.id;
-      if (userId == null) return;
-      await Future.wait([
-        SupabaseService.client
-            .from('users')
-            .select('*')
-            .eq('id', userId)
-            .maybeSingle(),
-        SupabaseService.client
-            .from('user_learning_paths')
-            .select('id, is_complete')
-            .eq('user_id', userId)
-            .limit(1),
-      ]);
-      Future.microtask(() async {
-        try {
-          await Future.wait([
-            SupabaseService.client
-                .from('user_path_challenges')
-                .select('id')
-                .eq('user_learning_paths.user_id', userId)
-                .limit(5),
-            SupabaseService.client
-                .from('challenges')
-                .select('id, title')
-                .limit(5),
-            SupabaseService.client
-                .from('learning_paths')
-                .select('id, title')
-                .limit(5),
-          ]);
-        } catch (e) {
-          debugPrint('Background prefetch error: $e');
-        }
-      });
+      if (AuthService.instance.currentStatus != AuthStatus.authenticated) {
+        return;
+      }
+      await ConvexClientService.instance.query(name: 'users:getMe');
     } catch (e) {
-      debugPrint('Essential prefetch error: $e');
+      debugPrint('Prefetch error: $e');
     }
   }
 

@@ -5,10 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:neurobits/services/ai_service.dart';
-import 'package:neurobits/services/supabase.dart';
+import 'package:neurobits/services/convex_client_service.dart';
+import 'package:neurobits/core/providers.dart';
 
 class ChallengeLoaderScreen extends ConsumerStatefulWidget {
-
   final dynamic challengeData;
   const ChallengeLoaderScreen({required this.challengeData, super.key});
   @override
@@ -23,6 +23,52 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
   String _errorMessage = '';
   bool _hasHandledNavigation = false;
   bool _hasNavigated = false;
+  String _generateRouteId() {
+    return DateTime.now().microsecondsSinceEpoch.toString();
+  }
+
+  List<String>? _normalizeOptions(dynamic options) {
+    if (options is! List) return null;
+    final normalized = options
+        .map((e) => e is String
+            ? e
+            : (e is Map ? e['text']?.toString() : e?.toString()))
+        .whereType<String>()
+        .toList();
+    return normalized;
+  }
+
+  Map<String, dynamic> _normalizeQuestion(Map<String, dynamic> q) {
+    final normalized = Map<String, dynamic>.from(q);
+    final optionsRaw = normalized['options'];
+    final options = _normalizeOptions(optionsRaw);
+    if (options != null && options.isNotEmpty) {
+      normalized['options'] = options;
+      final answer = normalized['answer'] ?? normalized['solution'];
+      if (answer == null) {
+        final correctAnswer = normalized['correctAnswer'];
+        if (correctAnswer is int &&
+            correctAnswer >= 0 &&
+            correctAnswer < options.length) {
+          normalized['answer'] = options[correctAnswer];
+        }
+        if (optionsRaw is List) {
+          final correct = optionsRaw
+              .whereType<Map>()
+              .firstWhere((e) => e['isCorrect'] == true, orElse: () => {});
+          if (correct.isNotEmpty && correct['text'] != null) {
+            normalized['answer'] = correct['text'].toString();
+          }
+        }
+      } else if (answer is int) {
+        if (answer >= 0 && answer < options.length) {
+          normalized['answer'] = options[answer];
+        }
+      }
+    }
+    return normalized;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -39,35 +85,38 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
     super.didChangeDependencies();
     if (_hasHandledNavigation || _hasNavigated) return;
     final uri = GoRouterState.of(context).uri.toString();
-    debugPrint(
-        'ChallengeLoaderScreen.didChangeDependencies: route=$uri, challengeData=${widget.challengeData}');
     if (uri.endsWith('_loaded')) {
-      debugPrint('Already on loaded route, not running loader logic.');
       _hasNavigated = true;
       return;
     }
 
     final data = widget.challengeData;
     if (data is Map<String, dynamic> &&
-        data['questions'] is List &&
-        (data['questions'] as List).isNotEmpty) {
-      debugPrint(
-          'Found questions in challenge data, navigating to loaded route.');
+        isConvexList(data['questions']) &&
+        toList(data['questions']).isNotEmpty) {
       _hasHandledNavigation = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        final challengeId = data['id'] ?? UniqueKey().toString();
+        final challengeId = data['_id'] ?? data['id'] ?? _generateRouteId();
+        final extra = Map<String, dynamic>.from(data);
+        final rawQuestions = data['questions'];
+        if (isConvexList(rawQuestions)) {
+          extra['questions'] = toList(rawQuestions)
+              .map((e) => _normalizeQuestion(toMap(e)))
+              .toList();
+        }
+        extra['userPathChallengeId'] ??=
+            data['user_path_challenge_id']?.toString();
         if (_hasNavigated) return;
         _hasNavigated = true;
         context.go(
           '/challenge/$challengeId/_loaded',
-          extra: data,
+          extra: extra,
         );
       });
       return;
     }
     _loadChallenge();
   }
-
 
   Future<void> _loadChallenge() async {
     try {
@@ -78,27 +127,28 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
       }
       List<Map<String, dynamic>>? preloadedQuestions;
       if (_parsedChallengeData != null) {
-        if (_parsedChallengeData!['questions'] is List) {
-          preloadedQuestions = List<Map<String, dynamic>>.from(
-              _parsedChallengeData!['questions']);
+        if (isConvexList(_parsedChallengeData!['questions'])) {
+          preloadedQuestions = toList(_parsedChallengeData!['questions'])
+              .map((e) => _normalizeQuestion(toMap(e)))
+              .toList();
         }
         if (preloadedQuestions == null || preloadedQuestions.isEmpty) {
-          final challengeId = _parsedChallengeData!['id'];
+          final challengeId =
+              _parsedChallengeData!['_id'] ?? _parsedChallengeData!['id'];
           if (challengeId != null) {
-            debugPrint(
-                "Fetching questions from database for challenge: $challengeId");
-            final challenge = await SupabaseService.client
-                .from('challenges')
-                .select('*')
-                .eq('id', challengeId)
-                .single();
+            final challengeRepo = ref.read(challengeRepositoryProvider);
+            final challenge =
+                await challengeRepo.getById(challengeId.toString());
             if (challenge != null) {
               if (challenge['questions'] != null) {
                 try {
-                  final questions = jsonDecode(challenge['questions']);
-                  if (questions is List) {
-                    preloadedQuestions =
-                        List<Map<String, dynamic>>.from(questions);
+                  final questions = challenge['questions'] is String
+                      ? jsonDecode(challenge['questions'])
+                      : challenge['questions'];
+                  if (isConvexList(questions)) {
+                    preloadedQuestions = toList(questions)
+                        .map((e) => _normalizeQuestion(toMap(e)))
+                        .toList();
                   }
                 } catch (e) {
                   debugPrint("Error parsing questions: $e");
@@ -107,14 +157,22 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
               if (preloadedQuestions == null || preloadedQuestions.isEmpty) {
                 if (challenge['options'] != null) {
                   try {
-                    final options = jsonDecode(challenge['options']);
-                    if (options is List) {
+                    final options = challenge['options'] is String
+                        ? jsonDecode(challenge['options'])
+                        : challenge['options'];
+                    if (isConvexList(options)) {
+                      final normalizedOptions = _normalizeOptions(options);
+                      final answerFromOptions = options
+                          .whereType<Map>()
+                          .firstWhere((e) => e['isCorrect'] == true,
+                              orElse: () => {});
                       preloadedQuestions = [
                         {
                           'question': challenge['question'],
                           'solution': challenge['solution'],
-                          'options': options,
-                          'topic': challenge['title'] ?? challenge['quiz_name'],
+                          'answer': answerFromOptions['text']?.toString(),
+                          'options': normalizedOptions ?? options,
+                          'topic': challenge['title'] ?? challenge['quizName'],
                           'difficulty': challenge['difficulty'] ?? 'Medium',
                           'type': 'mcq'
                         }
@@ -122,13 +180,16 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
                     }
                   } catch (e) {
                     debugPrint("Error parsing options: $e");
-                    if (challenge['options'] is List) {
+                    if (isConvexList(challenge['options'])) {
+                      final normalizedOptions =
+                          _normalizeOptions(toList(challenge['options']));
                       preloadedQuestions = [
                         {
                           'question': challenge['question'],
                           'solution': challenge['solution'],
-                          'options': challenge['options'],
-                          'topic': challenge['title'] ?? challenge['quiz_name'],
+                          'options':
+                              normalizedOptions ?? toList(challenge['options']),
+                          'topic': challenge['title'] ?? challenge['quizName'],
                           'difficulty': challenge['difficulty'] ?? 'Medium',
                           'type': 'mcq'
                         }
@@ -138,16 +199,17 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
                 }
               }
               if (preloadedQuestions == null || preloadedQuestions.isEmpty) {
+                final normalizedOptions = challenge['options'] != null
+                    ? _normalizeOptions(isConvexList(challenge['options'])
+                        ? toList(challenge['options'])
+                        : jsonDecode(challenge['options']))
+                    : null;
                 preloadedQuestions = [
                   {
                     'question': challenge['question'],
                     'solution': challenge['solution'],
-                    'options': challenge['options'] != null
-                        ? (challenge['options'] is List
-                            ? challenge['options']
-                            : jsonDecode(challenge['options']))
-                        : null,
-                    'topic': challenge['title'] ?? challenge['quiz_name'],
+                    'options': normalizedOptions,
+                    'topic': challenge['title'] ?? challenge['quizName'],
                     'difficulty': challenge['difficulty'] ?? 'Medium',
                     'type': challenge['options'] != null ? 'mcq' : 'input'
                   }
@@ -158,7 +220,8 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
         }
       }
       if (preloadedQuestions != null && preloadedQuestions.isNotEmpty) {
-        debugPrint("Using preloaded questions for challenge.");
+        preloadedQuestions =
+            preloadedQuestions.map(_normalizeQuestion).toList();
         _hasHandledNavigation = true;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _navigateToChallenge(preloadedQuestions!);
@@ -167,13 +230,11 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
       }
       if (_parsedChallengeData != null) {
         String? topic;
-        if (_parsedChallengeData!['topic_id'] != null) {
-          final topicData = await SupabaseService.client
-              .from('topics')
-              .select('name')
-              .eq('id', _parsedChallengeData!['topic_id'])
-              .maybeSingle();
-          topic = topicData?['name'];
+        final topicId = _parsedChallengeData!['topicId'] ??
+            _parsedChallengeData!['topic_id'];
+        if (topicId != null) {
+          topic = _parsedChallengeData!['topic']?.toString() ??
+              _parsedChallengeData!['title']?.toString();
         } else {
           topic = _parsedChallengeData!['topic']?.toString() ??
               _parsedChallengeData!['title']?.toString();
@@ -181,8 +242,9 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
         if (topic != null && topic.isNotEmpty) {
           final difficulty =
               _parsedChallengeData!['difficulty']?.toString() ?? 'Medium';
-          final count = _parsedChallengeData!['numQuestions'] as int? ?? 5;
-          debugPrint("Generating questions for topic: $topic");
+          final count = _parsedChallengeData!['numQuestions'] is num
+              ? (_parsedChallengeData!['numQuestions'] as num).toInt()
+              : 5;
           setState(() {
             _questionsFuture = AIService.generateQuestions(
               topic!,
@@ -215,10 +277,14 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
           '';
     }
     final currentRoute = GoRouterState.of(context).uri.toString();
-    final challengeId = _parsedChallengeData?['id'] ?? UniqueKey().toString();
+    final challengeId = _parsedChallengeData?['_id'] ??
+        _parsedChallengeData?['id'] ??
+        _generateRouteId();
+    final userPathChallengeId =
+        _parsedChallengeData?['userPathChallengeId']?.toString() ??
+            _parsedChallengeData?['user_path_challenge_id']?.toString();
     final loadedRoute = '/challenge/$challengeId/_loaded';
     if (currentRoute == loadedRoute) {
-      debugPrint('Already on loaded route $loadedRoute, not navigating again.');
       _hasNavigated = true;
       return;
     }
@@ -227,8 +293,6 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
           'ERROR: Attempted to navigate to non-loaded route: $loadedRoute');
       return;
     }
-    debugPrint(
-        'Navigating from $currentRoute to $loadedRoute with questions: ${questions.length}');
     _hasNavigated = true;
     context.go(
       '/challenge/$challengeId/_loaded',
@@ -237,15 +301,18 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
         'questions': questions,
         'topic': topic,
         'quiz_name': _parsedChallengeData?['quiz_name']?.toString() ??
+            _parsedChallengeData?['quizName']?.toString() ??
             _parsedChallengeData?['title']?.toString() ??
             topic,
         'timedMode': _parsedChallengeData?['timedMode'] ?? true,
         'numQuestions': questions.length,
         'question_count': questions.length,
+        'challengeId': _parsedChallengeData?['_id'],
+        if (userPathChallengeId != null)
+          'userPathChallengeId': userPathChallengeId,
       },
     );
   }
-
 
   void _setError(String message) {
     setState(() {
@@ -300,11 +367,11 @@ class _ChallengeLoaderScreenState extends ConsumerState<ChallengeLoaderScreen> {
                 ),
               );
             } else if (snapshot.hasError) {
-              final errorMessage = "Error generating questions: ${snapshot.error}";
+              final errorMessage =
+                  "Error generating questions: ${snapshot.error}";
               _setError(errorMessage);
               return const Center(child: CircularProgressIndicator());
             } else if (snapshot.hasData && snapshot.data!.isNotEmpty) {
-
               _navigateToChallenge(snapshot.data!);
               return const Center(child: CircularProgressIndicator());
             } else {
