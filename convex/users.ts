@@ -14,6 +14,8 @@ export const getMe = query({
       email: v.string(),
       emailLower: v.string(),
       username: v.optional(v.string()),
+      avatarUrl: v.optional(v.string()),
+      avatarSeed: v.optional(v.string()),
       points: v.number(),
       xp: v.number(),
       level: v.number(),
@@ -117,6 +119,8 @@ export const ensureCurrent = mutation({
 export const updateProfile = mutation({
   args: {
     username: v.optional(v.string()),
+    avatarUrl: v.optional(v.string()),
+    avatarSeed: v.optional(v.string()),
     streakGoal: v.optional(v.number()),
   },
   returns: v.null(),
@@ -132,6 +136,12 @@ export const updateProfile = mutation({
 
     if (args.username !== undefined) {
       updates.username = args.username;
+    }
+    if (args.avatarUrl !== undefined) {
+      updates.avatarUrl = args.avatarUrl;
+    }
+    if (args.avatarSeed !== undefined) {
+      updates.avatarSeed = args.avatarSeed;
     }
     if (args.streakGoal !== undefined) {
       updates.streakGoal = args.streakGoal;

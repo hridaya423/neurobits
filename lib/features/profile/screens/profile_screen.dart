@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:neurobits/core/providers.dart';
 import 'package:neurobits/services/convex_client_service.dart';
+import 'package:neurobits/core/widgets/facehash_avatar.dart';
 import '../widgets/badge_gallery.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
@@ -86,6 +87,18 @@ class _ProfileOverviewTab extends ConsumerWidget {
             final xp = convexInt(user['xp']);
             final currentStreak = convexInt(user['currentStreak']);
             final longestStreak = convexInt(user['longestStreak']);
+            final username = user['username']?.toString().trim();
+            final email = user['email']?.toString() ?? 'Learner';
+            final emailLower = user['emailLower']?.toString().trim();
+            final displayName =
+                (username != null && username.isNotEmpty) ? username : email;
+            final avatarSeed = user['avatarSeed']?.toString().trim();
+            final avatarKey = (avatarSeed != null && avatarSeed.isNotEmpty)
+                ? avatarSeed
+                : (emailLower != null && emailLower.isNotEmpty)
+                    ? emailLower
+                    : displayName;
+            final avatarUrl = user['avatarUrl']?.toString().trim();
             const xpPerLevel = 100;
             final previousLevelXp = (level - 1) * xpPerLevel;
             final xpIntoLevel =
@@ -106,22 +119,29 @@ class _ProfileOverviewTab extends ConsumerWidget {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        CircleAvatar(
-                          radius: 36,
-                          backgroundColor:
-                              Theme.of(context).colorScheme.primary,
-                          child: Text(
-                            user['email']?.substring(0, 1).toUpperCase() ?? '?',
-                            style: const TextStyle(
-                                fontSize: 30, color: Colors.white),
-                          ),
+                        _ProfileAvatar(
+                          avatarUrl: avatarUrl,
+                          avatarKey: avatarKey,
+                          fallbackName: displayName,
+                          size: 72,
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          user['email'] ?? 'Unknown',
+                          displayName,
                           style: Theme.of(context).textTheme.titleLarge,
                           overflow: TextOverflow.ellipsis,
                         ),
+                        if (displayName != email) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            email,
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(color: Colors.grey[600]),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
                         const SizedBox(height: 8),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -320,6 +340,8 @@ class _ProfileSettingsTab extends ConsumerWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        ProfileIdentitySection(),
+        const SizedBox(height: 16),
         StreakGoalSection(),
         const SizedBox(height: 16),
         AdaptiveDifficultySection(),
@@ -646,9 +668,10 @@ class QuizSettingsSection extends ConsumerWidget {
                   decoration: const InputDecoration(
                       labelText: 'Default Number of Questions',
                       border: OutlineInputBorder()),
-                  initialValue: questionCountOptions.contains(currentQuestionCount)
-                      ? currentQuestionCount
-                      : questionCountOptions.first,
+                  initialValue:
+                      questionCountOptions.contains(currentQuestionCount)
+                          ? currentQuestionCount
+                          : questionCountOptions.first,
                   items: questionCountOptions
                       .map((cnt) => DropdownMenuItem(
                           value: cnt, child: Text('$cnt questions')))
@@ -664,9 +687,10 @@ class QuizSettingsSection extends ConsumerWidget {
                   decoration: const InputDecoration(
                       labelText: 'Default Time per Question',
                       border: OutlineInputBorder()),
-                  initialValue: timePerQuestionOptions.contains(currentTimePerQuestion)
-                      ? currentTimePerQuestion
-                      : timePerQuestionOptions[5],
+                  initialValue:
+                      timePerQuestionOptions.contains(currentTimePerQuestion)
+                          ? currentTimePerQuestion
+                          : timePerQuestionOptions[5],
                   items: timePerQuestionOptions
                       .map((t) =>
                           DropdownMenuItem(value: t, child: Text('$t seconds')))
@@ -862,6 +886,178 @@ class _ProfileStatCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _ProfileAvatar extends StatelessWidget {
+  final String? avatarUrl;
+  final String avatarKey;
+  final String fallbackName;
+  final double size;
+
+  const _ProfileAvatar({
+    required this.avatarUrl,
+    required this.avatarKey,
+    required this.fallbackName,
+    required this.size,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final name = avatarKey.isNotEmpty ? avatarKey : fallbackName;
+    if (avatarUrl == null || avatarUrl!.isEmpty) {
+      return FacehashAvatar(
+        name: name,
+        size: size,
+        variant: FacehashVariant.gradient,
+        intensity3d: FacehashIntensity.dramatic,
+        showInitial: false,
+        showMouth: true,
+        enableBlink: true,
+        shape: FacehashShape.round,
+      );
+    }
+    return ClipOval(
+      child: Image.network(
+        avatarUrl!,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) {
+          return FacehashAvatar(
+            name: name,
+            size: size,
+            variant: FacehashVariant.gradient,
+            intensity3d: FacehashIntensity.dramatic,
+            showInitial: false,
+            showMouth: true,
+            enableBlink: true,
+            shape: FacehashShape.round,
+          );
+        },
+      ),
+    );
+  }
+}
+
+class ProfileIdentitySection extends ConsumerStatefulWidget {
+  const ProfileIdentitySection({super.key});
+
+  @override
+  ConsumerState<ProfileIdentitySection> createState() =>
+      _ProfileIdentitySectionState();
+}
+
+class _ProfileIdentitySectionState
+    extends ConsumerState<ProfileIdentitySection> {
+  late final TextEditingController _usernameController;
+  late final TextEditingController _avatarController;
+  bool _initialized = false;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _usernameController = TextEditingController();
+    _avatarController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _usernameController.dispose();
+    _avatarController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveProfile(BuildContext context) async {
+    if (_isSaving) return;
+    setState(() => _isSaving = true);
+    final username = _usernameController.text.trim();
+    final avatarUrl = _avatarController.text.trim();
+
+    try {
+      final userRepo = ref.read(userRepositoryProvider);
+      await userRepo.updateProfile(
+        username: username.isEmpty ? null : username,
+        avatarUrl: avatarUrl.isEmpty ? null : avatarUrl,
+      );
+      refreshProfileStats(ref);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile updated.')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error updating profile: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final userAsyncValue = ref.watch(userProvider);
+    return userAsyncValue.when(
+      data: (user) {
+        if (user == null) {
+          return const SizedBox.shrink();
+        }
+        if (!_initialized) {
+          _usernameController.text = user['username']?.toString() ?? '';
+          _avatarController.text = user['avatarUrl']?.toString() ?? '';
+          _initialized = true;
+        }
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Profile', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _usernameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Username',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _avatarController,
+                  decoration: const InputDecoration(
+                    labelText: 'Avatar URL (optional)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _isSaving ? null : () => _saveProfile(context),
+                    child: _isSaving
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Save profile'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (error, stack) => const SizedBox.shrink(),
     );
   }
 }

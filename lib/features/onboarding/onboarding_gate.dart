@@ -5,6 +5,7 @@ import 'package:neurobits/core/providers.dart';
 import 'learning_path_onboarding_screen.dart';
 import 'quiz_preferences_onboarding_screen.dart';
 import 'personalization_onboarding_screen.dart';
+import 'identity_onboarding_screen.dart';
 
 final onboardingCompleteProvider = StateProvider<bool>((ref) => false);
 
@@ -74,7 +75,6 @@ class _OnboardingGateState extends ConsumerState<OnboardingGate> {
                 await userRepo.updateSettings(
                   adaptiveDifficultyEnabled: adaptiveDifficulty,
                 );
-                await userRepo.completeOnboarding();
 
                 if (!mounted) return;
                 if (Navigator.of(dialogContext).canPop()) {
@@ -110,12 +110,32 @@ class _OnboardingGateState extends ConsumerState<OnboardingGate> {
                 );
 
                 if (!mounted) return;
+                await Navigator.of(context).push(
+                  MaterialPageRoute(
+                    fullscreenDialog: true,
+                    builder: (_) => IdentityOnboardingScreen(
+                      onComplete: () {
+                        if (Navigator.of(context).canPop()) {
+                          Navigator.of(context).pop();
+                        }
+                      },
+                    ),
+                  ),
+                );
+
+                if (!mounted) return;
                 await syncOnboardingStatusFromBackend(ref);
                 await showDialog<bool?>(
                   context: context,
                   barrierDismissible: false,
                   builder: (dialogContext2) => LearningPathOnboardingScreen(),
                 );
+                try {
+                  await userRepo.completeOnboarding();
+                } catch (e) {
+                  debugPrint(
+                      '[OnboardingGate] Error finalizing onboarding: $e');
+                }
                 await syncOnboardingStatusFromBackend(ref);
               } catch (e) {
                 debugPrint(

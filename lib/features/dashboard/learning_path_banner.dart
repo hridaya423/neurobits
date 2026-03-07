@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:neurobits/services/convex_client_service.dart';
 import 'package:neurobits/features/learning_path/tweak_learning_path_screen.dart';
 
 class LearningPathBanner extends StatelessWidget {

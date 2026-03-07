@@ -7,6 +7,8 @@ export default defineSchema({
     email: v.string(),
     emailLower: v.string(),
     username: v.optional(v.string()),
+    avatarUrl: v.optional(v.string()),
+    avatarSeed: v.optional(v.string()),
 
     points: v.number(),
     xp: v.number(),

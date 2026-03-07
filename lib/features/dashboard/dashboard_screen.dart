@@ -4,6 +4,7 @@ import 'package:neurobits/core/providers.dart';
 import 'package:neurobits/services/auth_service.dart';
 import 'package:neurobits/services/convex_client_service.dart';
 import 'package:go_router/go_router.dart';
+import 'package:neurobits/core/widgets/facehash_avatar.dart';
 import '../onboarding/learning_path_onboarding_screen.dart';
 import 'learning_path_banner.dart';
 import 'completed_paths_screen.dart';
@@ -236,6 +237,261 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildLearnHubHeader(
+    BuildContext context, {
+    required Map<String, dynamic> user,
+    required Map<String, dynamic> stats,
+    required bool isInLearningPathMode,
+  }) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final username = user['username']?.toString().trim();
+    final email = user['email']?.toString() ?? 'Learner';
+    final emailLower = user['emailLower']?.toString().trim();
+    final avatarSeed = user['avatarSeed']?.toString().trim();
+    final fallbackName = email.contains('@') ? email.split('@').first : email;
+    final displayName =
+        (username != null && username.isNotEmpty) ? username : fallbackName;
+    final avatarKey = (avatarSeed != null && avatarSeed.isNotEmpty)
+        ? avatarSeed
+        : (emailLower != null && emailLower.isNotEmpty)
+            ? emailLower
+            : displayName;
+    final avatarUrl = user['avatarUrl']?.toString().trim();
+    final level = (user['level'] as num?)?.toInt() ?? 1;
+    final xp = (user['xp'] as num?)?.toInt() ?? 0;
+    final streak = (stats['currentStreak'] as num?)?.toInt() ?? 0;
+    final streakGoal = (user['streakGoal'] as num?)?.toInt() ?? 1;
+    const xpPerLevel = 100;
+    final previousLevelXp = (level - 1) * xpPerLevel;
+    final xpIntoLevel = (xp - previousLevelXp).clamp(0, xpPerLevel);
+    final xpProgress = xpPerLevel > 0 ? xpIntoLevel / xpPerLevel : 0.0;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colorScheme.primaryContainer.withOpacity(0.25),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: colorScheme.primary.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _buildAvatar(
+                context,
+                avatarUrl: avatarUrl,
+                avatarKey: avatarKey,
+                fallbackName: displayName,
+                size: 44,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Hi $displayName',
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      isInLearningPathMode ? 'Learning Path' : 'Free Mode',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: colorScheme.surfaceContainerHighest.withOpacity(0.4),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.local_fire_department, size: 16),
+                    const SizedBox(width: 4),
+                    Text(
+                      '$streak',
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Text(
+                'Level $level',
+                style: Theme.of(context)
+                    .textTheme
+                    .labelLarge
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: LinearProgressIndicator(
+                    value: xpProgress,
+                    minHeight: 8,
+                    backgroundColor:
+                        colorScheme.surfaceContainerHighest.withOpacity(0.4),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                '${xpIntoLevel.toInt()}/$xpPerLevel XP',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Daily goal: $streakGoal ${streakGoal == 1 ? 'day' : 'days'} streak',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAvatar(
+    BuildContext context, {
+    required String? avatarUrl,
+    required String avatarKey,
+    required String fallbackName,
+    required double size,
+  }) {
+    final name = avatarKey.isNotEmpty ? avatarKey : fallbackName;
+    final radius = BorderRadius.circular(size / 2);
+    if (avatarUrl == null || avatarUrl.isEmpty) {
+      return FacehashAvatar(
+        name: name,
+        size: size,
+        variant: FacehashVariant.gradient,
+        intensity3d: FacehashIntensity.dramatic,
+        showInitial: false,
+        showMouth: true,
+        enableBlink: true,
+        shape: FacehashShape.round,
+      );
+    }
+    return ClipRRect(
+      borderRadius: radius,
+      child: Image.network(
+        avatarUrl,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) {
+          return FacehashAvatar(
+            name: name,
+            size: size,
+            variant: FacehashVariant.gradient,
+            intensity3d: FacehashIntensity.dramatic,
+            showInitial: false,
+            showMouth: true,
+            enableBlink: true,
+            shape: FacehashShape.round,
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildDailyFocusSection(
+    BuildContext context,
+    AsyncValue<List<Map<String, dynamic>>> practiceRecs,
+  ) {
+    return practiceRecs.when(
+      data: (recs) {
+        if (recs.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        final focus = recs.first;
+        final topicName = focus['topicName']?.toString() ?? '';
+        final reason = focus['reason']?.toString() ?? 'Recommended for you';
+        if (topicName.isEmpty) return const SizedBox.shrink();
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Theme.of(context)
+                .colorScheme
+                .secondaryContainer
+                .withOpacity(0.2),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+                color: Theme.of(context).colorScheme.outline.withOpacity(0.3)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Today\'s focus',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleSmall
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                topicName,
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                reason,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    final encoded = Uri.encodeComponent(topicName);
+                    context.push('/topic/$encoded');
+                  },
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: const Text('Start focus quiz'),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+      loading: () => _buildPracticeSkeleton(),
+      error: (_, __) => const SizedBox.shrink(),
     );
   }
 
@@ -686,43 +942,44 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     required VoidCallback onFreeMode,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onExplorePaths,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            color: colorScheme.surfaceContainerHighest.withOpacity(0.16),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: colorScheme.outline.withOpacity(0.35)),
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withOpacity(0.16),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colorScheme.outline.withOpacity(0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Switch modes',
+            style: Theme.of(context)
+                .textTheme
+                .titleSmall
+                ?.copyWith(fontWeight: FontWeight.w700),
           ),
-          child: Row(
+          const SizedBox(height: 8),
+          Row(
             children: [
-              Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(
-                  color: colorScheme.primary.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(Icons.explore_outlined,
-                    size: 18, color: colorScheme.primary),
-              ),
-              const SizedBox(width: 12),
               Expanded(
-                child: Text(
-                  'Explore other paths',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleSmall
-                      ?.copyWith(fontWeight: FontWeight.w600),
+                child: ElevatedButton.icon(
+                  onPressed: onFreeMode,
+                  icon: const Icon(Icons.explore_outlined),
+                  label: const Text('Free Mode'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: onExplorePaths,
+                  icon: const Icon(Icons.route),
+                  label: const Text('Explore Paths'),
                 ),
               ),
             ],
           ),
-        ),
+        ],
       ),
     );
   }
@@ -865,8 +1122,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       });
     }
     final challenges = ref.watch(challengesProvider);
-    final userPoints =
-        user['points'] is num ? (user['points'] as num).toInt() : 0;
+    final userStats = userStatsAsync.valueOrNull ?? <String, dynamic>{};
     List<dynamic> filteredChallenges = [];
     filteredChallenges = challenges.value ?? [];
 
@@ -1044,6 +1300,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             child: Column(
               children: [
                 const SizedBox(height: 16),
+                _buildLearnHubHeader(
+                  context,
+                  user: user,
+                  stats: userStats,
+                  isInLearningPathMode: isInLearningPathMode,
+                ),
+                const SizedBox(height: 16),
                 if (isInLearningPathMode) ...[
                   LearningPathBanner(
                     path: userPath,
@@ -1166,47 +1429,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   ),
                 ],
                 if (!isInLearningPathMode && !isPathLoading) ...[
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .primaryContainer
-                          .withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    margin: const EdgeInsets.all(16),
-                    child: Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 30,
-                          backgroundColor:
-                              Theme.of(context).colorScheme.primary,
-                          child: Text(
-                            user['email']
-                                .toString()
-                                .substring(0, 1)
-                                .toUpperCase(),
-                            style: const TextStyle(
-                                fontSize: 24, color: Colors.white),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Welcome ${user['email']}',
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
-                              Text('Points: $userPoints'),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                   ref.watch(completedPathsProvider(user['_id'] ?? '')).when(
                         loading: () => const SizedBox(),
                         error: (e, _) => const SizedBox(),
@@ -1753,7 +1975,7 @@ class _SuggestedTopicCard extends StatelessWidget {
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
+          mainAxisSize: MainAxisSize.max,
           children: [
             Text(
               topicName,
@@ -1765,21 +1987,37 @@ class _SuggestedTopicCard extends StatelessWidget {
             ),
             const SizedBox(height: 2),
             if (reason.isNotEmpty)
-              Text(
-                reason,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Colors.grey[500],
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Because',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w600,
+                          ),
                     ),
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-              ),
-            const Spacer(),
+                    const SizedBox(height: 2),
+                    Text(
+                      reason,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.grey[500],
+                          ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              )
+            else
+              const Spacer(),
             if (relatedTopics.isNotEmpty)
               Text(
-                'Related to: ${relatedTopics.take(2).join(", ")}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colorScheme.primary.withOpacity(0.7),
-                      fontSize: 11,
+                'Related: ${relatedTopics.take(2).join(', ')}',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: colorScheme.primary,
+                      fontWeight: FontWeight.w600,
                     ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,

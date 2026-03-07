@@ -17,10 +17,14 @@ class UserRepository {
 
   Future<void> updateProfile({
     String? username,
+    String? avatarUrl,
+    String? avatarSeed,
     int? streakGoal,
   }) async {
     final args = <String, dynamic>{};
     if (username != null) args['username'] = username;
+    if (avatarUrl != null) args['avatarUrl'] = avatarUrl;
+    if (avatarSeed != null) args['avatarSeed'] = avatarSeed;
     if (streakGoal != null) args['streakGoal'] = streakGoal;
 
     await _client.mutation(name: 'users:updateProfile', args: args);

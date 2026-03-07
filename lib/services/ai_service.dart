@@ -1671,7 +1671,7 @@ Example: [
         return parsed
             .whereType<Map>()
             .map((e) {
-              final m = e as Map;
+              final m = e;
               final related = m['relatedTopics'];
               return {
                 'name': m['name']?.toString() ?? '',

@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:neurobits/features/challenges/screens/quiz_screen.dart';
 import 'quiz_review_screen.dart';
+import 'package:go_router/go_router.dart';
 
 class SessionSummaryScreen extends ConsumerStatefulWidget {
   final List<Map<String, dynamic>> questions;
@@ -116,6 +117,18 @@ class _SessionSummaryScreenState extends ConsumerState<SessionSummaryScreen> {
       if (QuizReview.isAnswerCorrect(q, userAns)) correct++;
     }
     return correct;
+  }
+
+  List<int> _incorrectIndices() {
+    final indices = <int>[];
+    for (int i = 0; i < widget.questions.length; i++) {
+      final q = widget.questions[i];
+      final userAns = widget.selectedAnswers[i];
+      if (!QuizReview.isAnswerCorrect(q, userAns)) {
+        indices.add(i);
+      }
+    }
+    return indices;
   }
 
   String _buildAISummary() {
@@ -264,6 +277,40 @@ class _SessionSummaryScreenState extends ConsumerState<SessionSummaryScreen> {
                   const SizedBox(height: 24),
                   ElevatedButton.icon(
                     onPressed: () {
+                      final encoded = Uri.encodeComponent(widget.topic);
+                      context.push('/topic/$encoded');
+                    },
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Practice this topic'),
+                  ),
+                  if (_incorrectIndices().isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        final indices = _incorrectIndices();
+                        final weakQuestions =
+                            indices.map((i) => widget.questions[i]).toList();
+                        final weakAnswers = indices
+                            .map((i) => widget.selectedAnswers[i])
+                            .toList();
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => QuizReviewScreen(
+                              questions: weakQuestions,
+                              selectedAnswers: weakAnswers,
+                              quizName: widget.quizName,
+                              topic: widget.topic,
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.school_outlined),
+                      label: const Text('Review weak questions'),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  ElevatedButton.icon(
+                    onPressed: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(
                           builder: (_) => QuizReviewScreen(
@@ -288,11 +335,16 @@ class _SessionSummaryScreenState extends ConsumerState<SessionSummaryScreen> {
                       final file =
                           await File('${tempDir.path}/share_congrats.png')
                               .writeAsBytes(bytes.buffer.asUint8List());
+                      final box = context.findRenderObject() as RenderBox?;
+                      final origin = box != null
+                          ? box.localToGlobal(Offset.zero) & box.size
+                          : null;
                       await SharePlus.instance.share(
                         ShareParams(
                           text: shareText,
                           files: [XFile(file.path)],
                           subject: 'Celebrate my Neurobits Achievement!',
+                          sharePositionOrigin: origin,
                         ),
                       );
                     },
