@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:convex_dart/src/convex_dart_for_generated_code.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -54,6 +56,18 @@ class ConvexClientService {
     return value;
   }
 
+  bool _isTimeoutError(Object error) {
+    return error is TimeoutException ||
+        error.toString().contains('TimeoutException');
+  }
+
+  bool _shouldLogFailure(String name, Object error) {
+    if (name == 'users:ensureCurrent' && _isTimeoutError(error)) {
+      return false;
+    }
+    return true;
+  }
+
   Future<dynamic> query({
     required String name,
     Map<String, dynamic> args = const {},
@@ -69,7 +83,7 @@ class ConvexClientService {
           timeout == null ? await future : await future.timeout(timeout);
       return decodeValue(raw);
     } catch (e) {
-      if (kDebugMode) {
+      if (kDebugMode && _shouldLogFailure(name, e)) {
         debugPrint(
             '[ConvexClientService] query:$name failed in ${sw.elapsedMilliseconds}ms: $e');
       }
@@ -92,7 +106,7 @@ class ConvexClientService {
           timeout == null ? await future : await future.timeout(timeout);
       return decodeValue(raw);
     } catch (e) {
-      if (kDebugMode) {
+      if (kDebugMode && _shouldLogFailure(name, e)) {
         debugPrint(
             '[ConvexClientService] mutation:$name failed in ${sw.elapsedMilliseconds}ms: $e');
       }
@@ -115,7 +129,7 @@ class ConvexClientService {
           timeout == null ? await future : await future.timeout(timeout);
       return decodeValue(raw);
     } catch (e) {
-      if (kDebugMode) {
+      if (kDebugMode && _shouldLogFailure(name, e)) {
         debugPrint(
             '[ConvexClientService] action:$name failed in ${sw.elapsedMilliseconds}ms: $e');
       }
@@ -157,7 +171,7 @@ int? convexIntOrNull(dynamic value) {
 dynamic _deepConvert(dynamic value) {
   if (value is IMap) {
     return Map<String, dynamic>.fromEntries(
-      value.entries
+      value.entries 
           .map((e) => MapEntry(e.key as String, _deepConvert(e.value))),
     );
   }
