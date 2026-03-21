@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:neurobits/core/widgets/latex_text.dart';
 import 'package:neurobits/core/widgets/math_input_field.dart';
+import 'package:neurobits/features/challenges/widgets/question_hint_accordion.dart';
+import 'package:neurobits/features/challenges/widgets/question_visual_block.dart';
 
 class InputChallenge extends StatefulWidget {
   final String question;
@@ -8,6 +10,9 @@ class InputChallenge extends StatefulWidget {
   final Function(String) onSubmitted;
   final String? title;
   final bool isDisabled;
+  final String? hint;
+  final String? imageUrl;
+  final Map<String, dynamic>? chartSpec;
   const InputChallenge({
     super.key,
     required this.question,
@@ -15,6 +20,9 @@ class InputChallenge extends StatefulWidget {
     required this.onSubmitted,
     this.title,
     this.isDisabled = false,
+    this.hint,
+    this.imageUrl,
+    this.chartSpec,
   });
 
   @override
@@ -24,7 +32,6 @@ class InputChallenge extends StatefulWidget {
 class _InputChallengeState extends State<InputChallenge> {
   late TextEditingController _controller;
   bool _submitted = false;
-  String? _userAnswer;
   @override
   void initState() {
     super.initState();
@@ -41,7 +48,6 @@ class _InputChallengeState extends State<InputChallenge> {
     final answer = _controller.text.trim();
     setState(() {
       _submitted = true;
-      _userAnswer = answer;
     });
     widget.onSubmitted(answer);
   }
@@ -136,32 +142,43 @@ class _InputChallengeState extends State<InputChallenge> {
             const SizedBox(height: 8),
             LaTeXText(widget.question,
                 style: Theme.of(context).textTheme.bodyLarge),
+            if ((widget.imageUrl != null &&
+                    widget.imageUrl!.trim().isNotEmpty) ||
+                (widget.chartSpec != null && widget.chartSpec!.isNotEmpty)) ...[
+              const SizedBox(height: 12),
+              QuestionVisualBlock(
+                imageUrl: widget.imageUrl,
+                chartSpec: widget.chartSpec,
+              ),
+            ],
+            if (widget.hint != null && widget.hint!.trim().isNotEmpty) ...[
+              const SizedBox(height: 12),
+              QuestionHintAccordion(hint: widget.hint!.trim()),
+            ],
             const SizedBox(height: 16),
             _isMathQuestion()
-                 ? MathInputField(
-                     controller: _controller,
-                     labelText: 'Your Answer',
-                     hintText: 'Enter your mathematical answer...',
-                     enabled: !_submitted && !widget.isDisabled,
-                     onSubmitted: _submit,
-                   )
-                 : TextField(
-                     controller: _controller,
-                     enabled: !_submitted && !widget.isDisabled,
-                     decoration: const InputDecoration(
-                       labelText: 'Your Answer',
-                       border: OutlineInputBorder(),
-                     ),
-                     onSubmitted: (_) => _submit(),
-                   ),
-             const SizedBox(height: 16),
-             if (!_submitted)
-               ElevatedButton(
-                 onPressed: widget.isDisabled ? null : _submit,
-                 child: const Text('Submit'),
-               ),
-
-
+                ? MathInputField(
+                    controller: _controller,
+                    labelText: 'Your Answer',
+                    hintText: 'Enter your mathematical answer...',
+                    enabled: !_submitted && !widget.isDisabled,
+                    onSubmitted: _submit,
+                  )
+                : TextField(
+                    controller: _controller,
+                    enabled: !_submitted && !widget.isDisabled,
+                    decoration: const InputDecoration(
+                      labelText: 'Your Answer',
+                      border: OutlineInputBorder(),
+                    ),
+                    onSubmitted: (_) => _submit(),
+                  ),
+            const SizedBox(height: 16),
+            if (!_submitted)
+              ElevatedButton(
+                onPressed: widget.isDisabled ? null : _submit,
+                child: const Text('Submit'),
+              ),
           ],
         ),
       ),

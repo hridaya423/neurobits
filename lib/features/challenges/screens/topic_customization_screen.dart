@@ -35,6 +35,8 @@ class _TopicCustomizationScreenState
   late bool _includeMcqs;
   late bool _includeInput;
   late bool _includeFillBlank;
+  late bool _hintsEnabled;
+  late bool _imageQuestionsEnabled;
   bool? _isCodingRelated;
   bool _initialPrefsLoaded = false;
   bool _quickStartEnabled = true;
@@ -50,6 +52,8 @@ class _TopicCustomizationScreenState
     _includeMcqs = true;
     _includeInput = true;
     _includeFillBlank = false;
+    _hintsEnabled = false;
+    _imageQuestionsEnabled = false;
     _selectedTotalTimeLimit = null;
     _isCodingRelated = null;
     _animationController = AnimationController(
@@ -126,6 +130,8 @@ class _TopicCustomizationScreenState
         includeMcqs: _includeMcqs,
         includeInput: _includeInput,
         includeFillBlank: _includeFillBlank,
+        includeHints: _hintsEnabled,
+        includeImageQuestions: _imageQuestionsEnabled,
         timedMode: _timedMode,
         ref: ref,
         totalTimeLimit: _selectedTotalTimeLimit,
@@ -250,6 +256,13 @@ class _TopicCustomizationScreenState
                                         prefsData['quickStartEnabled']
                                                 as bool? ??
                                             true;
+                                    _hintsEnabled =
+                                        prefsData['hintsEnabled'] as bool? ??
+                                            false;
+                                    _imageQuestionsEnabled =
+                                        prefsData['imageQuestionsEnabled']
+                                                as bool? ??
+                                            false;
                                     final List<String> allowedTypes =
                                         convexStringList(
                                             prefsData['allowedChallengeTypes'],
@@ -496,6 +509,60 @@ class _TopicCustomizationScreenState
                                 onChanged: (value) {
                                   setState(() {
                                     _timedMode = value;
+                                  });
+                                },
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('Hints for Most Questions'),
+                                    SizedBox(height: 4),
+                                    Text(
+                                      'If enabled, most questions will include a short hint.',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Switch(
+                                value: _hintsEnabled,
+                                onChanged: (value) {
+                                  setState(() {
+                                    _hintsEnabled = value;
+                                  });
+                                },
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('Visual Questions (Images + Charts)'),
+                                    SizedBox(height: 4),
+                                    Text(
+                                      'Generate creative diagrams, maps, and charts when useful.',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Switch(
+                                value: _imageQuestionsEnabled,
+                                onChanged: (value) {
+                                  setState(() {
+                                    _imageQuestionsEnabled = value;
                                   });
                                 },
                               ),

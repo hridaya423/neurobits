@@ -575,7 +575,7 @@ Rect _rectBounds(List<RRect> rects) {
   for (final rect in rects) {
     bounds = bounds == null
         ? rect.outerRect
-        : bounds!.expandToInclude(rect.outerRect);
+        : bounds.expandToInclude(rect.outerRect);
   }
   return bounds ?? Rect.zero;
 }

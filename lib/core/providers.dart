@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
@@ -37,6 +38,28 @@ final preferenceRepositoryProvider = Provider<PreferenceRepository>((ref) {
 final progressRepositoryProvider = Provider<ProgressRepository>((ref) {
   return ProgressRepository(ConvexClientService.instance);
 });
+
+final reportSummaryProvider =
+    FutureProvider.family<Map<String, dynamic>, String>(
+  (ref, key) async {
+    final parts = key.split(':');
+    final period = parts.isNotEmpty ? parts[0] : 'weekly';
+    final scope = parts.length > 1 ? parts[1] : 'all';
+    final repo = ref.read(progressRepositoryProvider);
+    return await repo.getReportSummary(period: period, scope: scope);
+  },
+);
+
+final reportDetailProvider =
+    FutureProvider.family<Map<String, dynamic>, String>(
+  (ref, key) async {
+    final parts = key.split(':');
+    final period = parts.isNotEmpty ? parts[0] : 'weekly';
+    final scope = parts.length > 1 ? parts[1] : 'all';
+    final repo = ref.read(progressRepositoryProvider);
+    return await repo.getReportDetail(period: period, scope: scope);
+  },
+);
 
 final pathRepositoryProvider = Provider<PathRepository>((ref) {
   return PathRepository(ConvexClientService.instance);
@@ -174,24 +197,72 @@ final userProvider = StreamProvider<Map<String, dynamic>?>((ref) async* {
   final userRepo = ref.read(userRepositoryProvider);
   const bootstrapTimeout = Duration(seconds: 15);
 
+  bool isTimeoutError(Object error) {
+    return error is TimeoutException ||
+        error.toString().contains('TimeoutException');
+  }
+
+  Future<void> ensureCurrentBestEffort() async {
+    try {
+      await ConvexClientService.instance.mutation(
+        name: 'users:ensureCurrent',
+        args: {},
+        timeout: bootstrapTimeout,
+      );
+    } catch (e) {
+      if (!isTimeoutError(e)) {
+        debugPrint('[userProvider] users:ensureCurrent failed: $e');
+      }
+    }
+  }
+
+  Future<void> syncAuthToken() async {
+    try {
+      final idToken = await AuthService.instance.getIdToken();
+      await ConvexClientService.instance.setAuthToken(idToken);
+    } catch (e) {
+      debugPrint('[userProvider] Failed to sync auth token: $e');
+    }
+  }
+
   Future<Map<String, dynamic>?> fetchCurrentUser() async {
     try {
       final existing = await userRepo.getMe().timeout(bootstrapTimeout);
       if (existing != null) return existing;
     } catch (e) {
-      debugPrint('[userProvider] getMe before ensureCurrent failed: $e');
+      if (!isTimeoutError(e)) {
+        debugPrint('[userProvider] getMe before ensureCurrent failed: $e');
+      }
     }
 
-    await ConvexClientService.instance.mutation(
-        name: 'users:ensureCurrent', args: {}).timeout(bootstrapTimeout);
-    return await userRepo.getMe().timeout(bootstrapTimeout);
+    await ensureCurrentBestEffort();
+
+    try {
+      return await userRepo.getMe().timeout(bootstrapTimeout);
+    } catch (e) {
+      if (!isTimeoutError(e)) {
+        debugPrint('[userProvider] getMe after ensureCurrent failed: $e');
+      }
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> fetchCurrentUserWithRetry() async {
+    await syncAuthToken();
+    var userData = await fetchCurrentUser();
+    if (userData != null) return userData;
+
+    await Future.delayed(const Duration(seconds: 2));
+    await syncAuthToken();
+    userData = await fetchCurrentUser();
+    return userData;
   }
 
   yield null;
 
   if (AuthService.instance.currentStatus == AuthStatus.authenticated) {
     try {
-      final userData = await fetchCurrentUser();
+      final userData = await fetchCurrentUserWithRetry();
       yield userData;
     } catch (e) {
       debugPrint('[userProvider] Error fetching initial user data: $e');
@@ -202,11 +273,7 @@ final userProvider = StreamProvider<Map<String, dynamic>?>((ref) async* {
   await for (final status in AuthService.instance.authStateChanges) {
     if (status == AuthStatus.authenticated) {
       try {
-        final idToken = await AuthService.instance.getIdToken();
-        if (idToken != null) {
-          await ConvexClientService.instance.setAuthToken(idToken);
-        }
-        final userData = await fetchCurrentUser();
+        final userData = await fetchCurrentUserWithRetry();
         yield userData;
       } catch (e) {
         debugPrint('[userProvider] Error fetching user data: $e');

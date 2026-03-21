@@ -16,6 +16,8 @@ class PreferenceRepository {
     int? defaultTimePerQuestionSec,
     bool? timedModeEnabled,
     bool? quickStartEnabled,
+    bool? hintsEnabled,
+    bool? imageQuestionsEnabled,
     List<String>? allowedChallengeTypes,
     String? learningGoal,
     String? experienceLevel,
@@ -37,6 +39,12 @@ class PreferenceRepository {
     if (timedModeEnabled != null) args['timedModeEnabled'] = timedModeEnabled;
     if (quickStartEnabled != null) {
       args['quickStartEnabled'] = quickStartEnabled;
+    }
+    if (hintsEnabled != null) {
+      args['hintsEnabled'] = hintsEnabled;
+    }
+    if (imageQuestionsEnabled != null) {
+      args['imageQuestionsEnabled'] = imageQuestionsEnabled;
     }
     if (allowedChallengeTypes != null) {
       args['allowedChallengeTypes'] = allowedChallengeTypes;

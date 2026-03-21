@@ -155,10 +155,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         ? '$completedChallenges/$totalChallenges done'
         : '$totalChallenges challenges';
     final containerColor = isCurrent
-        ? colorScheme.primaryContainer.withOpacity(0.22)
-        : colorScheme.surfaceContainerHighest.withOpacity(0.18);
-    final borderColor =
-        isCurrent ? colorScheme.primary : colorScheme.outline.withOpacity(0.4);
+        ? colorScheme.primaryContainer.withValues(alpha: 0.22)
+        : colorScheme.surfaceContainerHighest.withValues(alpha: 0.18);
+    final borderColor = isCurrent
+        ? colorScheme.primary
+        : colorScheme.outline.withValues(alpha: 0.4);
 
     return Material(
       color: Colors.transparent,
@@ -174,7 +175,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             border: Border.all(color: borderColor, width: 1.2),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.12),
+                color: Colors.black.withValues(alpha: 0.12),
                 blurRadius: 12,
                 offset: const Offset(0, 4),
               ),
@@ -190,8 +191,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
                       color: isCurrent
-                          ? colorScheme.primary.withOpacity(0.18)
-                          : colorScheme.secondaryContainer.withOpacity(0.3),
+                          ? colorScheme.primary.withValues(alpha: 0.18)
+                          : colorScheme.secondaryContainer
+                              .withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
@@ -260,6 +262,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             ? emailLower
             : displayName;
     final avatarUrl = user['avatarUrl']?.toString().trim();
+    final createdAt = (user['createdAt'] as num?)?.toInt();
+    final accountAgeDays = createdAt == null
+        ? 0
+        : (DateTime.now().millisecondsSinceEpoch - createdAt) ~/ 86400000;
+    final showWeeklyReport = accountAgeDays >= 7;
+    final reportLabel = showWeeklyReport ? 'Weekly report' : 'Daily report';
+    final reportPeriod = showWeeklyReport ? 'weekly' : 'daily';
     final level = (user['level'] as num?)?.toInt() ?? 1;
     final xp = (user['xp'] as num?)?.toInt() ?? 0;
     final streak = (stats['currentStreak'] as num?)?.toInt() ?? 0;
@@ -273,9 +282,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: colorScheme.primaryContainer.withOpacity(0.25),
+        color: colorScheme.primaryContainer.withValues(alpha: 0.25),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: colorScheme.primary.withOpacity(0.2)),
+        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -318,7 +327,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color: colorScheme.surfaceContainerHighest.withOpacity(0.4),
+                  color: colorScheme.surfaceContainerHighest
+                      .withValues(alpha: 0.4),
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Row(
@@ -353,8 +363,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   child: LinearProgressIndicator(
                     value: xpProgress,
                     minHeight: 8,
-                    backgroundColor:
-                        colorScheme.surfaceContainerHighest.withOpacity(0.4),
+                    backgroundColor: colorScheme.surfaceContainerHighest
+                        .withValues(alpha: 0.4),
                   ),
                 ),
               ),
@@ -374,6 +384,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: colorScheme.onSurfaceVariant,
                 ),
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () => context.push('/reports?period=$reportPeriod'),
+              icon: const Icon(Icons.assessment_outlined, size: 16),
+              label: Text(reportLabel),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                minimumSize: const Size(0, 32),
+              ),
+            ),
           ),
         ],
       ),
@@ -424,77 +447,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  Widget _buildDailyFocusSection(
-    BuildContext context,
-    AsyncValue<List<Map<String, dynamic>>> practiceRecs,
-  ) {
-    return practiceRecs.when(
-      data: (recs) {
-        if (recs.isEmpty) {
-          return const SizedBox.shrink();
-        }
-        final focus = recs.first;
-        final topicName = focus['topicName']?.toString() ?? '';
-        final reason = focus['reason']?.toString() ?? 'Recommended for you';
-        if (topicName.isEmpty) return const SizedBox.shrink();
-        return Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Theme.of(context)
-                .colorScheme
-                .secondaryContainer
-                .withOpacity(0.2),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-                color: Theme.of(context).colorScheme.outline.withOpacity(0.3)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Today\'s focus',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleSmall
-                    ?.copyWith(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                topicName,
-                style: Theme.of(context)
-                    .textTheme
-                    .titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                reason,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    final encoded = Uri.encodeComponent(topicName);
-                    context.push('/topic/$encoded');
-                  },
-                  icon: const Icon(Icons.play_arrow_rounded),
-                  label: const Text('Start focus quiz'),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-      loading: () => _buildPracticeSkeleton(),
-      error: (_, __) => const SizedBox.shrink(),
-    );
-  }
-
   Widget _buildCurrentFocusCard(
     BuildContext context, {
     required int currentStep,
@@ -516,18 +468,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest.withOpacity(0.22),
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.22),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-            color: colorScheme.primary.withOpacity(0.14), width: 1.2),
+            color: colorScheme.primary.withValues(alpha: 0.14), width: 1.2),
         boxShadow: [
           BoxShadow(
-            color: colorScheme.primary.withOpacity(0.08),
+            color: colorScheme.primary.withValues(alpha: 0.08),
             blurRadius: 14,
             offset: const Offset(0, 6),
           ),
           BoxShadow(
-            color: Colors.black.withOpacity(0.14),
+            color: Colors.black.withValues(alpha: 0.14),
             blurRadius: 18,
             offset: const Offset(0, 10),
           ),
@@ -575,7 +527,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             child: LinearProgressIndicator(
               value: percent,
               minHeight: 4,
-              backgroundColor: colorScheme.onSurface.withOpacity(0.08),
+              backgroundColor: colorScheme.onSurface.withValues(alpha: 0.08),
               valueColor: AlwaysStoppedAnimation(colorScheme.primary),
             ),
           ),
@@ -614,7 +566,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               padding: const EdgeInsets.only(top: 10),
               decoration: BoxDecoration(
                 border: Border(
-                  top: BorderSide(color: colorScheme.primary.withOpacity(0.22)),
+                  top: BorderSide(
+                      color: colorScheme.primary.withValues(alpha: 0.22)),
                 ),
               ),
               child: Column(
@@ -626,7 +579,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         width: 22,
                         height: 22,
                         decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.18),
+                          color: Colors.green.withValues(alpha: 0.18),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(Icons.check,
@@ -646,7 +599,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: colorScheme.primary.withOpacity(0.14),
+                          color: colorScheme.primary.withValues(alpha: 0.14),
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: Text(
@@ -838,13 +791,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       horizontal: 14, vertical: isCompleted ? 10 : 12),
                   decoration: BoxDecoration(
                     color: isCompleted
-                        ? Colors.green.withOpacity(0.10)
-                        : colorScheme.surfaceContainerHighest.withOpacity(0.16),
+                        ? Colors.green.withValues(alpha: 0.10)
+                        : colorScheme.surfaceContainerHighest
+                            .withValues(alpha: 0.16),
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
                       color: isCompleted
-                          ? Colors.green.withOpacity(0.45)
-                          : colorScheme.outline.withOpacity(0.35),
+                          ? Colors.green.withValues(alpha: 0.45)
+                          : colorScheme.outline.withValues(alpha: 0.35),
                     ),
                   ),
                   child: Row(
@@ -855,8 +809,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                           color: isCompleted
-                              ? Colors.green.withOpacity(0.22)
-                              : colorScheme.primary.withOpacity(0.15),
+                              ? Colors.green.withValues(alpha: 0.22)
+                              : colorScheme.primary.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Icon(
@@ -945,9 +899,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest.withOpacity(0.16),
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.16),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: colorScheme.outline.withOpacity(0.35)),
+        border: Border.all(color: colorScheme.outline.withValues(alpha: 0.35)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1070,6 +1024,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.assessment_outlined),
+            tooltip: 'Reports',
+            onPressed: () {
+              context.push('/reports?period=weekly');
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.person_outline),
             tooltip: 'Profile',
@@ -1406,23 +1367,21 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           ref.read(userPathProvider.notifier).state = null;
                           ref.invalidate(activeLearningPathProvider);
                           ref.invalidate(userPathDataProvider);
-                          await ref.refresh(activeLearningPathProvider.future);
+                          await ref.read(activeLearningPathProvider.future);
                           ref.read(userPathProvider.notifier).state = null;
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                  content: Text('Switched to Free Mode.')),
-                            );
-                          }
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(this.context).showSnackBar(
+                            const SnackBar(
+                                content: Text('Switched to Free Mode.')),
+                          );
                         } catch (e) {
                           debugPrint('Failed to switch to free mode: $e');
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                  content:
-                                      Text('Failed to switch to Free Mode.')),
-                            );
-                          }
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(this.context).showSnackBar(
+                            const SnackBar(
+                                content:
+                                    Text('Failed to switch to Free Mode.')),
+                          );
                         }
                       },
                     ),
@@ -1465,7 +1424,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       color: Theme.of(context)
                           .colorScheme
                           .secondaryContainer
-                          .withOpacity(0.2),
+                          .withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Column(
@@ -1643,37 +1602,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       },
       loading: () => _buildNewTopicsSkeleton(),
       error: (_, __) => const SizedBox.shrink(),
-    );
-  }
-
-  Widget _buildRecommendationsSkeleton() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 160,
-          height: 18,
-          decoration: BoxDecoration(
-            color: Colors.grey.shade800,
-            borderRadius: BorderRadius.circular(4),
-          ),
-        ),
-        const SizedBox(height: 12),
-        ...List.generate(
-          2,
-          (_) => Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Container(
-              width: double.infinity,
-              height: 56,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade800,
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
-        ),
-      ],
     );
   }
 
@@ -1897,7 +1825,7 @@ class _PracticeTopicCard extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
-          color: colorScheme.secondaryContainer.withOpacity(0.2),
+          color: colorScheme.secondaryContainer.withValues(alpha: 0.2),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
@@ -1970,7 +1898,7 @@ class _SuggestedTopicCard extends StatelessWidget {
         height: 140,
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: colorScheme.primaryContainer.withOpacity(0.15),
+          color: colorScheme.primaryContainer.withValues(alpha: 0.15),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Column(

@@ -16,6 +16,8 @@ export const getMine = query({
       defaultTimePerQuestionSec: v.number(),
       timedModeEnabled: v.boolean(),
       quickStartEnabled: v.optional(v.boolean()),
+      hintsEnabled: v.optional(v.boolean()),
+      imageQuestionsEnabled: v.optional(v.boolean()),
       allowedChallengeTypes: v.array(v.string()),
       learningGoal: v.optional(v.string()),
       experienceLevel: v.optional(v.string()),
@@ -46,6 +48,8 @@ export const upsertMine = mutation({
     defaultTimePerQuestionSec: v.optional(v.number()),
     timedModeEnabled: v.optional(v.boolean()),
     quickStartEnabled: v.optional(v.boolean()),
+    hintsEnabled: v.optional(v.boolean()),
+    imageQuestionsEnabled: v.optional(v.boolean()),
     allowedChallengeTypes: v.optional(v.array(v.string())),
     learningGoal: v.optional(v.string()),
     experienceLevel: v.optional(v.string()),
@@ -76,6 +80,10 @@ export const upsertMine = mutation({
         updates.timedModeEnabled = args.timedModeEnabled;
       if (args.quickStartEnabled !== undefined)
         updates.quickStartEnabled = args.quickStartEnabled;
+      if (args.hintsEnabled !== undefined)
+        updates.hintsEnabled = args.hintsEnabled;
+      if (args.imageQuestionsEnabled !== undefined)
+        updates.imageQuestionsEnabled = args.imageQuestionsEnabled;
       if (args.allowedChallengeTypes !== undefined)
         updates.allowedChallengeTypes = args.allowedChallengeTypes;
       if (args.learningGoal !== undefined)
@@ -100,6 +108,8 @@ export const upsertMine = mutation({
         defaultTimePerQuestionSec: args.defaultTimePerQuestionSec ?? 60,
         timedModeEnabled: args.timedModeEnabled ?? false,
         quickStartEnabled: args.quickStartEnabled ?? true,
+        hintsEnabled: args.hintsEnabled ?? false,
+        imageQuestionsEnabled: args.imageQuestionsEnabled ?? false,
         allowedChallengeTypes: args.allowedChallengeTypes ?? ["quiz"],
         learningGoal: args.learningGoal,
         experienceLevel: args.experienceLevel,

@@ -9,6 +9,7 @@ import 'package:neurobits/features/dashboard/dashboard_screen.dart';
 import 'package:neurobits/features/profile/screens/profile_screen.dart';
 import 'package:neurobits/features/landing/landingpage.dart';
 import 'package:neurobits/features/auth/login_screen.dart';
+import 'package:neurobits/features/reports/report_screen.dart';
 import 'package:neurobits/services/auth_service.dart';
 import 'package:neurobits/features/challenges/screens/topic_customization_screen.dart';
 import 'package:neurobits/features/onboarding/onboarding_gate.dart';
@@ -101,6 +102,9 @@ final routerProvider = Provider<GoRouter>((ref) {
                         timedMode: challenge['timedMode'] is bool
                             ? challenge['timedMode']
                             : true,
+                        hintsEnabled: challenge['hintsEnabled'] is bool
+                            ? challenge['hintsEnabled'] as bool
+                            : false,
                         challengeId: challenge['challengeId']?.toString() ??
                             challenge['_id']?.toString(),
                         userPathChallengeId:
@@ -167,6 +171,9 @@ final routerProvider = Provider<GoRouter>((ref) {
                   timedMode: extra['timedMode'] is bool
                       ? extra['timedMode'] as bool
                       : true,
+                  hintsEnabled: extra['hintsEnabled'] is bool
+                      ? extra['hintsEnabled'] as bool
+                      : false,
                   challengeId: extra['challengeId']?.toString(),
                   userPathChallengeId: extra['userPathChallengeId']?.toString(),
                 ),
@@ -191,6 +198,19 @@ final routerProvider = Provider<GoRouter>((ref) {
           child: ProfileScreen(),
           transitionsBuilder: _fadeTransition,
         ),
+      ),
+      GoRoute(
+        path: '/reports',
+        pageBuilder: (context, state) {
+          final period = state.uri.queryParameters['period'] == 'monthly'
+              ? 'monthly'
+              : 'weekly';
+          return CustomTransitionPage(
+            transitionDuration: const Duration(milliseconds: 300),
+            child: ReportScreen(initialPeriod: period),
+            transitionsBuilder: _fadeTransition,
+          );
+        },
       ),
     ],
   );

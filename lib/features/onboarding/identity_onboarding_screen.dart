@@ -57,9 +57,9 @@ class _IdentityOnboardingScreenState
     final picks = <String>{};
     final seed = hash % 1000;
     picks.add(root);
-    picks.add('${root}${(seed % 90) + 10}');
+    picks.add('$root${(seed % 90) + 10}');
     picks.add('${adjectives[seed % adjectives.length]}$root');
-    picks.add('${root}${nouns[seed % nouns.length]}'.toLowerCase());
+    picks.add('$root${nouns[seed % nouns.length]}'.toLowerCase());
     picks.add(
         '${adjectives[(seed + 3) % adjectives.length]}${nouns[(seed + 5) % nouns.length]}');
     picks.add('${root}_${(seed % 900) + 100}');
@@ -75,13 +75,13 @@ class _IdentityOnboardingScreenState
     final candidates = <String>[
       root,
       '${root}_$n1',
-      '${root}$n2',
+      '$root$n2',
       '$n3$root',
       '${root}x',
       '${root}_alt',
-      '${root}${n1 + 10}',
-      '${root}${n2 + 20}',
-      '${root}${n3 + 30}',
+      '$root${n1 + 10}',
+      '$root${n2 + 20}',
+      '$root${n3 + 30}',
       '${root}_plus',
       '${root}_star',
     ];

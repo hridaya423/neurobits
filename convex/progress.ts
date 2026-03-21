@@ -558,3 +558,505 @@ export const getChallengeAnalytics = query({
     };
   },
 });
+
+const DAY_MS = 86400000;
+
+type PeriodKey = "daily" | "weekly" | "monthly";
+
+function getPeriodDays(period: PeriodKey) {
+  if (period === "daily") return 1;
+  return period === "monthly" ? 30 : 7;
+}
+
+function getPeriodRanges(period: PeriodKey) {
+  const days = getPeriodDays(period);
+  const now = Date.now();
+  const currentStart = now - days * DAY_MS;
+  const previousStart = currentStart - days * DAY_MS;
+  return { now, currentStart, previousStart };
+}
+
+function getDayKey(ts: number) {
+  return Math.floor(ts / DAY_MS);
+}
+
+function percentDelta(current: number, previous: number) {
+  if (previous === 0) return current > 0 ? 1 : 0;
+  return (current - previous) / Math.abs(previous);
+}
+
+async function resolveTopicName(
+  ctx: any,
+  cache: Map<string, string>,
+  challenge: any
+) {
+  const topicId = challenge?.topicId?.toString();
+  if (topicId && cache.has(topicId)) return cache.get(topicId) as string;
+  if (challenge?.topic) return challenge.topic as string;
+  if (topicId) {
+    const topic = await ctx.db.get(challenge.topicId);
+    if (topic !== null) {
+      cache.set(topicId, topic.name);
+      return topic.name as string;
+    }
+  }
+  return "";
+}
+
+function aggregateAttempts(
+  attempts: any[],
+  challengeTopicMap: Map<string, string>
+) {
+  const totals = {
+    quizzesCompleted: 0,
+    totalTimeSeconds: 0,
+    accuracySum: 0,
+    accuracyCount: 0,
+  };
+  const dayBuckets = new Map<number, { count: number; accuracySum: number; accuracyCount: number }>();
+  const topicAttempts = new Map<string, number>();
+  const topicAccuracy = new Map<string, { sum: number; count: number }>();
+  const topicSet = new Set<string>();
+
+  for (const attempt of attempts) {
+    totals.quizzesCompleted += 1;
+    totals.totalTimeSeconds += attempt.timeTakenSeconds ?? 0;
+    if (attempt.accuracy !== undefined) {
+      totals.accuracySum += attempt.accuracy;
+      totals.accuracyCount += 1;
+    }
+
+    const dayKey = getDayKey(attempt.createdAt ?? 0);
+    const day = dayBuckets.get(dayKey) ?? { count: 0, accuracySum: 0, accuracyCount: 0 };
+    day.count += 1;
+    if (attempt.accuracy !== undefined) {
+      day.accuracySum += attempt.accuracy;
+      day.accuracyCount += 1;
+    }
+    dayBuckets.set(dayKey, day);
+
+    const challengeId = attempt.challengeId?.toString();
+    if (challengeId && challengeTopicMap.has(challengeId)) {
+      const topicName = challengeTopicMap.get(challengeId) as string;
+      if (topicName) {
+        topicSet.add(topicName);
+        topicAttempts.set(topicName, (topicAttempts.get(topicName) ?? 0) + 1);
+        const acc = topicAccuracy.get(topicName) ?? { sum: 0, count: 0 };
+        if (attempt.accuracy !== undefined) {
+          acc.sum += attempt.accuracy;
+          acc.count += 1;
+        }
+        topicAccuracy.set(topicName, acc);
+      }
+    }
+  }
+
+  return {
+    totals,
+    dayBuckets,
+    topicAttempts,
+    topicAccuracy,
+    topicSet,
+  };
+}
+
+function buildTopicLists(
+  topicAttempts: Map<string, number>,
+  topicAccuracy: Map<string, { sum: number; count: number }>
+) {
+  const consistentTopics = Array.from(topicAttempts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([topic, attempts]) => ({ topic, attempts }));
+
+  const needsWork = Array.from(topicAccuracy.entries())
+    .map(([topic, acc]) => ({
+      topic,
+      accuracy: acc.count > 0 ? acc.sum / acc.count : 0,
+      attempts: topicAttempts.get(topic) ?? 0,
+    }))
+    .sort((a, b) => a.accuracy - b.accuracy)
+    .slice(0, 5);
+
+  return { consistentTopics, needsWork };
+}
+
+export const getReportSummary = query({
+  args: {
+    period: v.union(
+      v.literal("daily"),
+      v.literal("weekly"),
+      v.literal("monthly")
+    ),
+    scope: v.optional(v.union(v.literal("all"), v.literal("path"))),
+  },
+  returns: v.object({
+    period: v.string(),
+    scope: v.string(),
+    current: v.object({
+      quizzesCompleted: v.number(),
+      avgAccuracy: v.number(),
+      totalTimeSeconds: v.number(),
+      activeDays: v.number(),
+      newTopicsCount: v.number(),
+    }),
+    previous: v.object({
+      quizzesCompleted: v.number(),
+      avgAccuracy: v.number(),
+      totalTimeSeconds: v.number(),
+      activeDays: v.number(),
+      newTopicsCount: v.number(),
+    }),
+    deltas: v.object({
+      quizzesCompleted: v.number(),
+      avgAccuracy: v.number(),
+      totalTimeSeconds: v.number(),
+      activeDays: v.number(),
+      newTopicsCount: v.number(),
+      quizzesCompletedPct: v.number(),
+      avgAccuracyPct: v.number(),
+    }),
+    consistentTopics: v.array(
+      v.object({ topic: v.string(), attempts: v.number() })
+    ),
+    needsWork: v.array(
+      v.object({ topic: v.string(), accuracy: v.number(), attempts: v.number() })
+    ),
+    mostImproved: v.optional(
+      v.object({ topic: v.string(), accuracyDelta: v.number() })
+    ),
+  }),
+  handler: async (ctx, args) => {
+    const userId = await requireUser(ctx);
+    const { currentStart, previousStart } = getPeriodRanges(args.period);
+    const scope = args.scope ?? "all";
+
+    let pathTopicIds: Set<string> | null = null;
+    if (scope === "path") {
+      const activePath = await ctx.db
+        .query("userLearningPaths")
+        .withIndex("by_user_id_and_is_active_and_started_at", (q) =>
+          q.eq("userId", userId).eq("isActive", true)
+        )
+        .order("desc")
+        .first();
+      if (activePath?.pathId) {
+        const pathTopics = await ctx.db
+          .query("learningPathTopics")
+          .withIndex("by_path_id_and_step_number", (q) =>
+            q.eq("pathId", activePath.pathId as any)
+          )
+          .collect();
+        pathTopicIds = new Set(
+          pathTopics
+            .map((t) => t.topicId?.toString())
+            .filter((id): id is string => Boolean(id))
+        );
+      }
+    }
+
+    const attempts = await ctx.db
+      .query("challengeAttempts")
+      .withIndex("by_user_id_and_created_at", (q) =>
+        q.eq("userId", userId).gte("createdAt", previousStart)
+      )
+      .collect();
+
+    const challengeIds = Array.from(new Set(attempts.map((a) => a.challengeId?.toString()).filter(Boolean))) as string[];
+    const challengeTopicMap = new Map<string, string>();
+    const challengeTopicIdMap = new Map<string, string>();
+    for (const id of challengeIds) {
+      const challenge = (await ctx.db.get(id as any)) as any;
+      if (!challenge) continue;
+      if (challenge.topicId) {
+        challengeTopicIdMap.set(id, challenge.topicId.toString());
+      }
+      const topicName = await resolveTopicName(ctx, new Map(), challenge);
+      if (topicName) {
+        challengeTopicMap.set(id, topicName);
+      }
+    }
+
+    const scopedAttempts = pathTopicIds
+      ? attempts.filter((a) => {
+          const challengeId = a.challengeId?.toString();
+          if (!challengeId) return false;
+          const topicId = challengeTopicIdMap.get(challengeId);
+          return topicId ? pathTopicIds.has(topicId) : false;
+        })
+      : attempts;
+
+    const currentAttempts = scopedAttempts.filter((a) => a.createdAt >= currentStart);
+    const previousAttempts = scopedAttempts.filter(
+      (a) => a.createdAt >= previousStart && a.createdAt < currentStart
+    );
+
+    const currentAgg = aggregateAttempts(currentAttempts, challengeTopicMap);
+    const previousAgg = aggregateAttempts(previousAttempts, challengeTopicMap);
+
+    const currentAvgAccuracy =
+      currentAgg.totals.accuracyCount > 0
+        ? currentAgg.totals.accuracySum / currentAgg.totals.accuracyCount
+        : 0;
+    const previousAvgAccuracy =
+      previousAgg.totals.accuracyCount > 0
+        ? previousAgg.totals.accuracySum / previousAgg.totals.accuracyCount
+        : 0;
+
+    const currentDays = new Set(Array.from(currentAgg.dayBuckets.keys()));
+    const previousDays = new Set(Array.from(previousAgg.dayBuckets.keys()));
+
+    const newTopics = new Set<string>();
+    for (const topic of currentAgg.topicSet) {
+      if (!previousAgg.topicSet.has(topic)) newTopics.add(topic);
+    }
+
+    const { consistentTopics, needsWork } = buildTopicLists(
+      currentAgg.topicAttempts,
+      currentAgg.topicAccuracy
+    );
+
+    let mostImproved: { topic: string; accuracyDelta: number } | undefined = undefined;
+    for (const [topic, acc] of currentAgg.topicAccuracy.entries()) {
+      const prev = previousAgg.topicAccuracy.get(topic);
+      const currentAcc = acc.count > 0 ? acc.sum / acc.count : 0;
+      const prevAcc = prev && prev.count > 0 ? prev.sum / prev.count : 0;
+      const delta = currentAcc - prevAcc;
+      if (!mostImproved || delta > mostImproved.accuracyDelta) {
+        mostImproved = { topic, accuracyDelta: delta };
+      }
+    }
+
+    return {
+      period: args.period,
+      scope,
+      current: {
+        quizzesCompleted: currentAgg.totals.quizzesCompleted,
+        avgAccuracy: currentAvgAccuracy,
+        totalTimeSeconds: currentAgg.totals.totalTimeSeconds,
+        activeDays: currentDays.size,
+        newTopicsCount: newTopics.size,
+      },
+      previous: {
+        quizzesCompleted: previousAgg.totals.quizzesCompleted,
+        avgAccuracy: previousAvgAccuracy,
+        totalTimeSeconds: previousAgg.totals.totalTimeSeconds,
+        activeDays: previousDays.size,
+        newTopicsCount: 0,
+      },
+      deltas: {
+        quizzesCompleted: currentAgg.totals.quizzesCompleted - previousAgg.totals.quizzesCompleted,
+        avgAccuracy: currentAvgAccuracy - previousAvgAccuracy,
+        totalTimeSeconds: currentAgg.totals.totalTimeSeconds - previousAgg.totals.totalTimeSeconds,
+        activeDays: currentDays.size - previousDays.size,
+        newTopicsCount: newTopics.size,
+        quizzesCompletedPct: percentDelta(
+          currentAgg.totals.quizzesCompleted,
+          previousAgg.totals.quizzesCompleted
+        ),
+        avgAccuracyPct: percentDelta(currentAvgAccuracy, previousAvgAccuracy),
+      },
+      consistentTopics,
+      needsWork,
+      mostImproved,
+    };
+  },
+});
+
+export const getReportDetail = query({
+  args: {
+    period: v.union(
+      v.literal("daily"),
+      v.literal("weekly"),
+      v.literal("monthly")
+    ),
+    scope: v.optional(v.union(v.literal("all"), v.literal("path"))),
+  },
+  returns: v.object({
+    period: v.string(),
+    scope: v.string(),
+    periodStart: v.number(),
+    periodEnd: v.number(),
+    daily: v.array(
+      v.object({ date: v.number(), quizzesCompleted: v.number(), avgAccuracy: v.number() })
+    ),
+    topicsTried: v.array(v.string()),
+    newTopics: v.array(v.string()),
+    consistentTopics: v.array(
+      v.object({ topic: v.string(), attempts: v.number() })
+    ),
+    needsWork: v.array(
+      v.object({ topic: v.string(), accuracy: v.number(), attempts: v.number() })
+    ),
+    streak: v.object({ current: v.number(), longest: v.number(), goal: v.number() }),
+    mostImproved: v.optional(
+      v.object({ topic: v.string(), accuracyDelta: v.number() })
+    ),
+    path: v.optional(
+      v.object({
+        pathName: v.string(),
+        completionPercent: v.number(),
+        completedChallenges: v.number(),
+        totalChallenges: v.number(),
+        completedThisPeriod: v.number(),
+        backlog: v.number(),
+      })
+    ),
+  }),
+  handler: async (ctx, args) => {
+    const userId = await requireUser(ctx);
+    const { now, currentStart, previousStart } = getPeriodRanges(args.period);
+    const scope = args.scope ?? "all";
+
+    let pathTopicIds: Set<string> | null = null;
+    const activePath = await ctx.db
+      .query("userLearningPaths")
+      .withIndex("by_user_id_and_is_active_and_started_at", (q) =>
+        q.eq("userId", userId).eq("isActive", true)
+      )
+      .order("desc")
+      .first();
+    if (scope === "path" && activePath?.pathId) {
+      const pathTopics = await ctx.db
+        .query("learningPathTopics")
+        .withIndex("by_path_id_and_step_number", (q) =>
+          q.eq("pathId", activePath.pathId as any)
+        )
+        .collect();
+      pathTopicIds = new Set(
+        pathTopics
+          .map((t) => t.topicId?.toString())
+          .filter((id): id is string => Boolean(id))
+      );
+    }
+
+    const attempts = await ctx.db
+      .query("challengeAttempts")
+      .withIndex("by_user_id_and_created_at", (q) =>
+        q.eq("userId", userId).gte("createdAt", currentStart)
+      )
+      .collect();
+
+    const challengeIds = Array.from(new Set(attempts.map((a) => a.challengeId?.toString()).filter(Boolean))) as string[];
+    const topicNameCache = new Map<string, string>();
+    const challengeTopicMap = new Map<string, string>();
+    const challengeTopicIdMap = new Map<string, string>();
+    for (const id of challengeIds) {
+      const challenge = (await ctx.db.get(id as any)) as any;
+      if (!challenge) continue;
+      if (challenge.topicId) {
+        challengeTopicIdMap.set(id, challenge.topicId.toString());
+      }
+      const topicName = await resolveTopicName(ctx, topicNameCache, challenge);
+      if (topicName) {
+        challengeTopicMap.set(id, topicName);
+      }
+    }
+
+    const scopedAttempts = pathTopicIds
+      ? attempts.filter((a) => {
+          const challengeId = a.challengeId?.toString();
+          if (!challengeId) return false;
+          const topicId = challengeTopicIdMap.get(challengeId);
+          return topicId ? pathTopicIds.has(topicId) : false;
+        })
+      : attempts;
+
+    const currentAgg = aggregateAttempts(scopedAttempts, challengeTopicMap);
+    const { consistentTopics, needsWork } = buildTopicLists(
+      currentAgg.topicAttempts,
+      currentAgg.topicAccuracy
+    );
+
+    const topicsTried = Array.from(currentAgg.topicSet.values());
+
+    const previousAttempts = await ctx.db
+      .query("challengeAttempts")
+      .withIndex("by_user_id_and_created_at", (q) =>
+        q.eq("userId", userId)
+          .gte("createdAt", previousStart)
+          .lt("createdAt", currentStart)
+      )
+      .collect();
+    const scopedPreviousAttempts = pathTopicIds
+      ? previousAttempts.filter((a) => {
+          const challengeId = a.challengeId?.toString();
+          if (!challengeId) return false;
+          const topicId = challengeTopicIdMap.get(challengeId);
+          return topicId ? pathTopicIds.has(topicId) : false;
+        })
+      : previousAttempts;
+    const previousAgg = aggregateAttempts(scopedPreviousAttempts, challengeTopicMap);
+
+    const newTopics = topicsTried.filter((t) => !previousAgg.topicSet.has(t));
+
+    const daily = Array.from(currentAgg.dayBuckets.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([dayKey, bucket]) => ({
+        date: dayKey * DAY_MS,
+        quizzesCompleted: bucket.count,
+        avgAccuracy: bucket.accuracyCount > 0 ? bucket.accuracySum / bucket.accuracyCount : 0,
+      }));
+
+    let path: any = undefined;
+    if (activePath) {
+      const pathChallenges = await ctx.db
+        .query("userPathChallenges")
+        .withIndex("by_user_path_id_and_day", (q) =>
+          q.eq("userPathId", activePath._id)
+        )
+        .collect();
+      const totalChallenges = pathChallenges.length;
+      const completedChallenges = pathChallenges.filter((c) => c.completed).length;
+      const backlog = pathChallenges.filter((c) => !c.completed).length;
+      const completedThisPeriod = pathChallenges.filter((c) =>
+        c.updatedAt !== undefined && c.updatedAt >= currentStart
+      ).length;
+      const pathDoc = activePath.pathId
+        ? ((await ctx.db.get(activePath.pathId as any)) as any)
+        : null;
+      path = {
+        pathName: pathDoc?.name ?? "Learning Path",
+        completionPercent:
+          totalChallenges > 0 ? completedChallenges / totalChallenges : 0,
+        completedChallenges,
+        totalChallenges,
+        completedThisPeriod,
+        backlog,
+      };
+    }
+
+    let mostImproved: { topic: string; accuracyDelta: number } | undefined = undefined;
+    for (const [topic, acc] of currentAgg.topicAccuracy.entries()) {
+      const prev = previousAgg.topicAccuracy.get(topic);
+      const currentAcc = acc.count > 0 ? acc.sum / acc.count : 0;
+      const prevAcc = prev && prev.count > 0 ? prev.sum / prev.count : 0;
+      const delta = currentAcc - prevAcc;
+      if (!mostImproved || delta > mostImproved.accuracyDelta) {
+        mostImproved = { topic, accuracyDelta: delta };
+      }
+    }
+
+    const user = await ctx.db.get(userId);
+    const streak = {
+      current: user?.currentStreak ?? 0,
+      longest: user?.longestStreak ?? 0,
+      goal: user?.streakGoal ?? 0,
+    };
+
+    return {
+      period: args.period,
+      scope,
+      periodStart: currentStart,
+      periodEnd: now,
+      daily,
+      topicsTried,
+      newTopics,
+      consistentTopics,
+      needsWork,
+      streak,
+      mostImproved,
+      path,
+    };
+  },
+});

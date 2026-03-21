@@ -1,16 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:neurobits/core/widgets/latex_text.dart';
+import 'package:neurobits/features/challenges/widgets/question_hint_accordion.dart';
+import 'package:neurobits/features/challenges/widgets/question_visual_block.dart';
 
 class QuizChallenge extends StatefulWidget {
   final String question;
   final List<String> options;
   final Function(String) onSubmitted;
   final bool isDisabled;
+  final String? hint;
+  final String? imageUrl;
+  final Map<String, dynamic>? chartSpec;
   const QuizChallenge({
     required this.question,
     required this.options,
     required this.onSubmitted,
     this.isDisabled = false,
+    this.hint,
+    this.imageUrl,
+    this.chartSpec,
     super.key,
   });
 
@@ -33,7 +41,6 @@ class _QuizChallengeState extends State<QuizChallenge> {
     widget.onSubmitted(answer);
   }
 
-
   @override
   void didUpdateWidget(QuizChallenge oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -50,8 +57,7 @@ class _QuizChallengeState extends State<QuizChallenge> {
 
     return Padding(
       padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: ListView(
         children: [
           LaTeXText(
             widget.question,
@@ -60,8 +66,19 @@ class _QuizChallengeState extends State<QuizChallenge> {
             ),
             textAlign: TextAlign.center,
           ),
+          if ((widget.imageUrl != null && widget.imageUrl!.trim().isNotEmpty) ||
+              (widget.chartSpec != null && widget.chartSpec!.isNotEmpty)) ...[
+            const SizedBox(height: 12),
+            QuestionVisualBlock(
+              imageUrl: widget.imageUrl,
+              chartSpec: widget.chartSpec,
+            ),
+          ],
+          if (widget.hint != null && widget.hint!.trim().isNotEmpty) ...[
+            const SizedBox(height: 12),
+            QuestionHintAccordion(hint: widget.hint!.trim()),
+          ],
           const SizedBox(height: 24),
-
           ...widget.options.asMap().entries.map((entry) {
             final index = entry.key;
             final option = entry.value;
@@ -74,10 +91,9 @@ class _QuizChallengeState extends State<QuizChallenge> {
                 borderRadius: BorderRadius.circular(12),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(12),
-                   onTap: (_isSubmitted || widget.isDisabled)
-                       ? null
-                       : () => _selectAnswer(option),
-
+                  onTap: (_isSubmitted || widget.isDisabled)
+                      ? null
+                      : () => _selectAnswer(option),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
                     padding: const EdgeInsets.all(16.0),
@@ -117,7 +133,6 @@ class _QuizChallengeState extends State<QuizChallenge> {
                           ),
                         ),
                         const SizedBox(width: 16),
-
                         Expanded(
                           child: LaTeXText(
                             option,
@@ -132,7 +147,6 @@ class _QuizChallengeState extends State<QuizChallenge> {
                             ),
                           ),
                         ),
-
                         if (isSelected) ...[
                           const SizedBox(width: 8),
                           Icon(
@@ -148,6 +162,7 @@ class _QuizChallengeState extends State<QuizChallenge> {
               ),
             );
           }),
+          const SizedBox(height: 8),
         ],
       ),
     );

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -9,6 +11,11 @@ import 'package:neurobits/services/auth_service.dart';
 import 'package:neurobits/services/convex_client_service.dart';
 import 'package:neurobits/core/widgets/splash_screen.dart';
 import 'package:neurobits/services/content_moderation_service.dart';
+
+bool _isTimeoutError(Object error) {
+  return error is TimeoutException ||
+      error.toString().contains('TimeoutException');
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,11 +52,20 @@ void main() async {
         await convexClient.setAuthToken(idToken);
 
         convexClient
-            .mutation(name: 'users:ensureCurrent', args: {})
-            .timeout(const Duration(seconds: 15))
-            .catchError((e) => debugPrint('Warning: ensureCurrent failed: $e'));
+            .mutation(
+          name: 'users:ensureCurrent',
+          args: {},
+          timeout: const Duration(seconds: 15),
+        )
+            .catchError((e) {
+          if (!_isTimeoutError(e)) {
+            debugPrint('Warning: ensureCurrent failed: $e');
+          }
+        });
       }
     }
+
+    var ensureCurrentInFlight = false;
 
     authService.idTokenChanges.listen((firebaseUser) async {
       if (firebaseUser == null) {
@@ -64,11 +80,22 @@ void main() async {
       }
 
       await convexClient.setAuthToken(idToken);
-      convexClient
-          .mutation(name: 'users:ensureCurrent', args: {})
-          .timeout(const Duration(seconds: 15))
-          .catchError((e) =>
-              debugPrint('Warning: ensureCurrent failed (token listener): $e'));
+      if (ensureCurrentInFlight) return;
+
+      ensureCurrentInFlight = true;
+      try {
+        await convexClient.mutation(
+          name: 'users:ensureCurrent',
+          args: {},
+          timeout: const Duration(seconds: 15),
+        );
+      } catch (e) {
+        if (!_isTimeoutError(e)) {
+          debugPrint('Warning: ensureCurrent failed (token listener): $e');
+        }
+      } finally {
+        ensureCurrentInFlight = false;
+      }
     });
   } catch (e) {
     debugPrint("Error initializing Firebase Auth/Convex: $e");

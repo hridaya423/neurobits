@@ -179,6 +179,8 @@ export default defineSchema({
     defaultTimePerQuestionSec: v.number(),
     timedModeEnabled: v.boolean(),
     quickStartEnabled: v.optional(v.boolean()),
+    hintsEnabled: v.optional(v.boolean()),
+    imageQuestionsEnabled: v.optional(v.boolean()),
     allowedChallengeTypes: v.array(v.string()),
     learningGoal: v.optional(v.string()),
     experienceLevel: v.optional(v.string()),

@@ -38,6 +38,30 @@ class _QuizReviewScreenState extends State<QuizReviewScreen> {
 
   String _formatAnswer(Map<String, dynamic> q, dynamic rawAnswer) {
     if (rawAnswer == null) return '';
+    final type = q['type']?.toString().toLowerCase() ?? '';
+    final isOrdering = type == 'ordering';
+
+    if (rawAnswer is List) {
+      final options = q['options'];
+      final values = rawAnswer
+          .map((entry) {
+            if (entry is num && options is List) {
+              final index = entry.toInt();
+              if (index >= 0 && index < options.length) {
+                return _optionText(options[index]);
+              }
+              return null;
+            }
+            if (entry is Map && entry['text'] != null) {
+              return entry['text'].toString();
+            }
+            return entry?.toString();
+          })
+          .whereType<String>()
+          .toList();
+      if (values.isEmpty) return '';
+      return isOrdering ? values.join(' → ') : values.join(', ');
+    }
     if (rawAnswer is String) return rawAnswer;
     final options = q['options'];
     if (rawAnswer is num && options is List) {
@@ -64,6 +88,33 @@ class _QuizReviewScreenState extends State<QuizReviewScreen> {
   }
 
   String _formatCorrectAnswer(Map<String, dynamic> q) {
+    final type = q['type']?.toString().toLowerCase() ?? '';
+    final isOrdering = type == 'ordering';
+
+    final answerList = q['answer'] ?? q['solution'];
+    if (answerList is List) {
+      final options = q['options'];
+      final values = answerList
+          .map((entry) {
+            if (entry is num && options is List) {
+              final index = entry.toInt();
+              if (index >= 0 && index < options.length) {
+                return _optionText(options[index]);
+              }
+              return null;
+            }
+            if (entry is Map && entry['text'] != null) {
+              return entry['text'].toString();
+            }
+            return entry?.toString();
+          })
+          .whereType<String>()
+          .toList();
+      if (values.isNotEmpty) {
+        return isOrdering ? values.join(' → ') : values.join(', ');
+      }
+    }
+
     final options = q['options'];
     if (q['solution'] is num && options is List) {
       final index = (q['solution'] as num).toInt();

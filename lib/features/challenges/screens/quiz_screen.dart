@@ -9,6 +9,8 @@ import 'package:neurobits/services/convex_client_service.dart';
 import '../widgets/quiz_challenge.dart';
 import '../widgets/coding_challenge.dart';
 import '../widgets/input_challenge.dart';
+import '../widgets/multi_select_challenge.dart';
+import '../widgets/ordering_challenge.dart';
 import 'package:neurobits/features/challenges/screens/session_summary_screen.dart';
 
 class AnalyticsBadge extends StatelessWidget {
@@ -89,6 +91,53 @@ class QuizReview extends StatelessWidget {
   final List<dynamic> selectedAnswers;
   const QuizReview(
       {super.key, required this.questions, required this.selectedAnswers});
+
+  static String _normalizeText(dynamic value) {
+    return value?.toString().trim().toLowerCase() ?? '';
+  }
+
+  static List<String> _extractOptions(Map<String, dynamic> q) {
+    final raw = q['options'] ?? q['items'];
+    if (raw is! List) return const <String>[];
+    return raw
+        .map((e) => e is String
+            ? e
+            : (e is Map ? e['text']?.toString() : e?.toString()))
+        .whereType<String>()
+        .toList();
+  }
+
+  static List<String> _answerAsStringList(dynamic value,
+      {required List<String> options}) {
+    if (value is List) {
+      return value
+          .map((e) {
+            if (e is num) {
+              final idx = e.toInt();
+              if (idx >= 0 && idx < options.length) {
+                return options[idx];
+              }
+              return null;
+            }
+            if (e is Map && e['text'] != null) return e['text'].toString();
+            return e?.toString();
+          })
+          .whereType<String>()
+          .toList();
+    }
+    if (value is num) {
+      final idx = value.toInt();
+      if (idx >= 0 && idx < options.length) {
+        return [options[idx]];
+      }
+      return const <String>[];
+    }
+    if (value is String && value.trim().isNotEmpty) {
+      return [value];
+    }
+    return const <String>[];
+  }
+
   static bool isAnswerCorrect(Map<String, dynamic> q, dynamic userAnswer) {
     if (userAnswer == null) return false;
     final type = q['type']?.toString().toLowerCase() ??
@@ -117,6 +166,34 @@ class QuizReview extends StatelessWidget {
           return userAnswer.toString().trim().toLowerCase() ==
               correctAnswer.toString().trim().toLowerCase();
         }
+      case 'multi_select':
+        final options = _extractOptions(q);
+        final expected = _answerAsStringList(correctAnswer, options: options)
+            .map(_normalizeText)
+            .where((value) => value.isNotEmpty)
+            .toSet();
+        final actual = _answerAsStringList(userAnswer, options: options)
+            .map(_normalizeText)
+            .where((value) => value.isNotEmpty)
+            .toSet();
+        return expected.isNotEmpty &&
+            expected.length == actual.length &&
+            expected.containsAll(actual);
+      case 'ordering':
+        final options = _extractOptions(q);
+        final expected = _answerAsStringList(correctAnswer, options: options)
+            .map(_normalizeText)
+            .where((value) => value.isNotEmpty)
+            .toList();
+        final actual = _answerAsStringList(userAnswer, options: options)
+            .map(_normalizeText)
+            .where((value) => value.isNotEmpty)
+            .toList();
+        if (expected.isEmpty || expected.length != actual.length) return false;
+        for (int i = 0; i < expected.length; i++) {
+          if (expected[i] != actual[i]) return false;
+        }
+        return true;
       case 'input':
       case 'fill_blank':
       case 'code':
@@ -454,6 +531,7 @@ class AIChallengeScreen extends ConsumerStatefulWidget {
   final String? quizName;
   final List<Map<String, dynamic>> questions;
   final bool timedMode;
+  final bool hintsEnabled;
 
   final String? challengeId;
 
@@ -463,6 +541,7 @@ class AIChallengeScreen extends ConsumerStatefulWidget {
     required this.questions,
     this.quizName,
     this.timedMode = true,
+    this.hintsEnabled = false,
     this.challengeId,
     this.userPathChallengeId,
     super.key,
@@ -472,6 +551,7 @@ class AIChallengeScreen extends ConsumerStatefulWidget {
 }
 
 class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
+  late List<Map<String, dynamic>> _questions;
   late int _secondsRemaining;
   bool _completed = false;
   int _currentQuestionIndex = 0;
@@ -485,6 +565,11 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
   int _finalAnsweredCount = 0;
   double _finalAccuracy = 0.0;
   int _finalTimeTaken = 0;
+
+  String _currentQuestionHint(Map<String, dynamic> question) {
+    final hint = question['hint']?.toString().trim() ?? '';
+    return hint;
+  }
 
   IconData _badgeIcon(String? iconKey) {
     final key = (iconKey ?? '').toLowerCase().trim();
@@ -575,7 +660,8 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 8),
                       decoration: BoxDecoration(
-                        color: colorScheme.surfaceContainerHighest.withOpacity(0.35),
+                        color: colorScheme.surfaceContainerHighest
+                            .withOpacity(0.35),
                         borderRadius: BorderRadius.circular(999),
                         border: Border.all(
                           color: colorScheme.outline.withOpacity(0.2),
@@ -624,8 +710,25 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
   int _resolveSelectedOptionIndex(int questionIndex) {
     final selected = _selectedAnswers[questionIndex];
     if (selected is int) return selected;
+    if (selected is List && selected.isNotEmpty) {
+      final first = selected.first;
+      if (first is int) return first;
+      if (first is String) {
+        final optionsRaw = _questions[questionIndex]['options'];
+        if (optionsRaw is List) {
+          final options = optionsRaw
+              .map((e) => e is String
+                  ? e
+                  : (e is Map ? e['text']?.toString() : e?.toString()))
+              .whereType<String>()
+              .toList();
+          final idx = options.indexOf(first);
+          if (idx >= 0) return idx;
+        }
+      }
+    }
     if (selected is String) {
-      final optionsRaw = widget.questions[questionIndex]['options'];
+      final optionsRaw = _questions[questionIndex]['options'];
       if (optionsRaw is List) {
         final options = optionsRaw
             .map((e) => e is String
@@ -655,12 +758,12 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
       }
 
       final answers = <Map<String, dynamic>>[];
-      final perQuestionSeconds = widget.questions.isEmpty
+      final perQuestionSeconds = _questions.isEmpty
           ? 0
-          : (_finalTimeTaken / widget.questions.length).round();
-      for (int i = 0; i < widget.questions.length; i++) {
-        final isCorrect = QuizReview.isAnswerCorrect(
-            widget.questions[i], _selectedAnswers[i]);
+          : (_finalTimeTaken / _questions.length).round();
+      for (int i = 0; i < _questions.length; i++) {
+        final isCorrect =
+            QuizReview.isAnswerCorrect(_questions[i], _selectedAnswers[i]);
         answers.add({
           'questionIndex': i,
           'selectedOption': _resolveSelectedOptionIndex(i),
@@ -795,9 +898,12 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
   @override
   void initState() {
     super.initState();
+    _questions = widget.questions
+        .map((q) => Map<String, dynamic>.from(q))
+        .toList(growable: false);
     _currentQuestionIndex = 0;
     _completed = false;
-    _selectedAnswers = List<dynamic>.filled(widget.questions.length, null);
+    _selectedAnswers = List<dynamic>.filled(_questions.length, null);
     _startTime = DateTime.now();
   }
 
@@ -864,11 +970,11 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
 
   void _nextQuestion(bool success, [dynamic answer]) async {
     if (_disposed || _completed) return;
-    if (_currentQuestionIndex < widget.questions.length) {
+    if (_currentQuestionIndex < _questions.length) {
       _selectedAnswers[_currentQuestionIndex] = answer;
-      widget.questions[_currentQuestionIndex]['userAnswer'] = answer;
+      _questions[_currentQuestionIndex]['userAnswer'] = answer;
     }
-    if (_currentQuestionIndex < widget.questions.length - 1) {
+    if (_currentQuestionIndex < _questions.length - 1) {
       if (mounted) {
         setState(() {
           _currentQuestionIndex++;
@@ -884,11 +990,10 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
       _timer?.cancel();
       int correctCount = 0;
       int answeredCount = 0;
-      for (int i = 0; i < widget.questions.length; i++) {
+      for (int i = 0; i < _questions.length; i++) {
         if (_selectedAnswers[i] != null) answeredCount++;
         if (_selectedAnswers[i] != null &&
-            QuizReview.isAnswerCorrect(
-                widget.questions[i], _selectedAnswers[i])) {
+            QuizReview.isAnswerCorrect(_questions[i], _selectedAnswers[i])) {
           correctCount++;
         }
       }
@@ -910,7 +1015,7 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
         setState(() {});
       }
 
-      if (_selectedAnswers.isEmpty || widget.questions.isEmpty) {
+      if (_selectedAnswers.isEmpty || _questions.isEmpty) {
         debugPrint(
             'WARNING: selectedAnswers or questions are empty at quiz end!');
       }
@@ -919,17 +1024,26 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
   }
 
   Widget _buildChallenge() {
-    final currentQuestion = widget.questions[_currentQuestionIndex];
+    final currentQuestion = _questions[_currentQuestionIndex];
     final type = currentQuestion['type']?.toString().toLowerCase() ??
         (currentQuestion['options'] != null
             ? 'mcq'
             : (currentQuestion['solution'] != null ? 'code' : 'input'));
+    final hint = _currentQuestionHint(currentQuestion);
+    final effectiveHint =
+        (widget.hintsEnabled && hint.isNotEmpty) ? hint : null;
+    final imageUrl = currentQuestion['imageUrl']?.toString().trim() ?? '';
+    final effectiveImageUrl = imageUrl.isNotEmpty ? imageUrl : null;
+    final rawChartSpec =
+        currentQuestion['chartSpec'] ?? currentQuestion['chart_spec'];
+    final effectiveChartSpec =
+        rawChartSpec is Map ? Map<String, dynamic>.from(rawChartSpec) : null;
     return Stack(
       children: [
         Column(
           children: [
             LinearProgressIndicator(
-              value: (_currentQuestionIndex + 1) / widget.questions.length,
+              value: (_currentQuestionIndex + 1) / _questions.length,
               backgroundColor: Colors.grey[300],
               valueColor: AlwaysStoppedAnimation<Color>(
                   Theme.of(context).colorScheme.primary),
@@ -937,7 +1051,7 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
             Padding(
               padding: const EdgeInsets.all(8.0),
               child: Text(
-                'Question ${_currentQuestionIndex + 1}/${widget.questions.length}',
+                'Question ${_currentQuestionIndex + 1}/${_questions.length}',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
             ),
@@ -964,6 +1078,9 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
                       return QuizChallenge(
                         key: ValueKey(_currentQuestionIndex),
                         question: currentQuestion['question'],
+                        hint: effectiveHint,
+                        imageUrl: effectiveImageUrl,
+                        chartSpec: effectiveChartSpec,
                         options: options,
                         isDisabled: _isSubmitting,
                         onSubmitted: (answer) {
@@ -975,11 +1092,86 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
                           );
                         },
                       );
+                    case 'multi_select':
+                      final optionsRaw = currentQuestion['options'];
+                      final options = optionsRaw is List
+                          ? optionsRaw
+                              .map((e) => e is String
+                                  ? e
+                                  : (e is Map
+                                      ? e['text']?.toString()
+                                      : e?.toString()))
+                              .whereType<String>()
+                              .toList()
+                          : <String>[];
+                      if (options.length < 2) {
+                        return const Center(
+                          child: Text('Invalid multi-select options'),
+                        );
+                      }
+                      return MultiSelectChallenge(
+                        key: ValueKey(_currentQuestionIndex),
+                        question: currentQuestion['question']?.toString() ?? '',
+                        hint: effectiveHint,
+                        imageUrl: effectiveImageUrl,
+                        chartSpec: effectiveChartSpec,
+                        options: options,
+                        isDisabled: _isSubmitting,
+                        onSubmitted: (answers) {
+                          if (_isSubmitting) return;
+                          _selectedAnswers[_currentQuestionIndex] = answers;
+                          _nextQuestion(
+                            QuizReview.isAnswerCorrect(
+                                currentQuestion, answers),
+                            answers,
+                          );
+                        },
+                      );
+                    case 'ordering':
+                      final optionsRaw = currentQuestion['options'] ??
+                          currentQuestion['items'];
+                      final options = optionsRaw is List
+                          ? optionsRaw
+                              .map((e) => e is String
+                                  ? e
+                                  : (e is Map
+                                      ? e['text']?.toString()
+                                      : e?.toString()))
+                              .whereType<String>()
+                              .toList()
+                          : <String>[];
+                      if (options.length < 2) {
+                        return const Center(
+                          child: Text('Invalid ordering items'),
+                        );
+                      }
+                      return OrderingChallenge(
+                        key: ValueKey(_currentQuestionIndex),
+                        question: currentQuestion['question']?.toString() ?? '',
+                        hint: effectiveHint,
+                        imageUrl: effectiveImageUrl,
+                        chartSpec: effectiveChartSpec,
+                        items: options,
+                        isDisabled: _isSubmitting,
+                        onSubmitted: (orderedItems) {
+                          if (_isSubmitting) return;
+                          _selectedAnswers[_currentQuestionIndex] =
+                              orderedItems;
+                          _nextQuestion(
+                            QuizReview.isAnswerCorrect(
+                                currentQuestion, orderedItems),
+                            orderedItems,
+                          );
+                        },
+                      );
                     case 'input':
                     case 'fill_blank':
                       return InputChallenge(
                         key: ValueKey(_currentQuestionIndex),
                         question: currentQuestion['question'],
+                        hint: effectiveHint,
+                        imageUrl: effectiveImageUrl,
+                        chartSpec: effectiveChartSpec,
                         solution: currentQuestion['solution'] ??
                             currentQuestion['answer'] ??
                             '',
@@ -997,6 +1189,9 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
                       return CodingChallenge(
                         key: ValueKey(_currentQuestionIndex),
                         question: currentQuestion['question'],
+                        hint: effectiveHint,
+                        imageUrl: effectiveImageUrl,
+                        chartSpec: effectiveChartSpec,
                         solution: currentQuestion['solution'] ?? '',
                         starterCode: currentQuestion['starter_code'] ?? '',
                         isDisabled: _isSubmitting,
@@ -1102,17 +1297,17 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Icon(
-          _finalCorrectCount > (widget.questions.length / 2)
+          _finalCorrectCount > (_questions.length / 2)
               ? Icons.emoji_events
               : Icons.sentiment_satisfied,
-          color: _finalCorrectCount > (widget.questions.length / 2)
+          color: _finalCorrectCount > (_questions.length / 2)
               ? Colors.amber
               : Colors.grey,
           size: 64,
         ),
         const SizedBox(height: 18),
         Text(
-          _finalCorrectCount > (widget.questions.length / 2)
+          _finalCorrectCount > (_questions.length / 2)
               ? 'Congratulations!'
               : 'Good Try!',
           style: Theme.of(context)
@@ -1122,7 +1317,7 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
         ),
         const SizedBox(height: 10),
         Text(
-          _finalCorrectCount > (widget.questions.length / 2)
+          _finalCorrectCount > (_questions.length / 2)
               ? 'You completed the challenge.'
               : 'You can always try again to improve your score.',
           style: Theme.of(context).textTheme.bodyLarge,
@@ -1245,7 +1440,7 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
             await Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => SessionSummaryScreen(
-                  questions: widget.questions,
+                  questions: _questions,
                   selectedAnswers: _selectedAnswers,
                   totalTime: _finalTimeTaken,
                   accuracy: _finalAccuracy,
@@ -1269,10 +1464,10 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
           },
           style: ElevatedButton.styleFrom(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            backgroundColor: _finalCorrectCount > (widget.questions.length / 2)
+            backgroundColor: _finalCorrectCount > (_questions.length / 2)
                 ? Colors.green
                 : null,
-            foregroundColor: _finalCorrectCount > (widget.questions.length / 2)
+            foregroundColor: _finalCorrectCount > (_questions.length / 2)
                 ? Colors.white
                 : null,
           ),
@@ -1284,7 +1479,7 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.questions.isEmpty) {
+    if (_questions.isEmpty) {
       return Scaffold(
         appBar: AppBar(
           title: Text(widget.quizName ?? '${widget.topic} Error'),
@@ -1332,6 +1527,7 @@ class ChallengeScreen extends AIChallengeScreen {
     required super.questions,
     super.quizName,
     super.timedMode,
+    super.hintsEnabled,
     super.challengeId,
     super.userPathChallengeId,
     super.key,

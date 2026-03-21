@@ -55,14 +55,74 @@ class _PersonalizationOnboardingScreenState
 
   final List<String> _availableTopics = [
     'Programming',
+    'Data Science',
+    'AI & Machine Learning',
+    'Web Development',
+    'Mobile Development',
     'Mathematics',
-    'Science',
-    'Languages',
+    'Statistics',
+    'Physics',
+    'Biology',
+    'Chemistry',
+    'Psychology',
     'History',
+    'Economics',
     'Business',
-    'Art & Design',
+    'Finance',
+    'Marketing',
+    'Product Management',
+    'Design & UX',
+    'Languages',
+    'Writing',
     'Technology',
+    'Engineering',
   ];
+
+  final Map<String, List<String>> _goalTopicBias = {
+    'Career Change': [
+      'Programming',
+      'Data Science',
+      'Web Development',
+      'Product Management',
+      'Design & UX',
+      'Business',
+    ],
+    'Skill Enhancement': [
+      'Programming',
+      'AI & Machine Learning',
+      'Data Science',
+      'Technology',
+      'Engineering',
+    ],
+    'Academic Support': [
+      'Mathematics',
+      'Statistics',
+      'Physics',
+      'Biology',
+      'Chemistry',
+      'Writing',
+    ],
+    'Certification Prep': [
+      'Technology',
+      'Programming',
+      'Business',
+      'Finance',
+    ],
+    'Hobby Learning': [
+      'Languages',
+      'History',
+      'Writing',
+      'Design & UX',
+      'Psychology',
+    ],
+    'Interview Preparation': [
+      'Programming',
+      'Data Science',
+      'Product Management',
+      'Business',
+      'Statistics',
+    ],
+  };
 
   final List<String> _questionTypeOptions = [
     'quiz',
@@ -421,6 +481,7 @@ class _PersonalizationOnboardingScreenState
   }
 
   Widget _buildTopicInterestsPage() {
+    final rankedTopics = _rankedTopics();
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -448,9 +509,9 @@ class _PersonalizationOnboardingScreenState
                 crossAxisSpacing: 12,
                 mainAxisSpacing: 12,
               ),
-              itemCount: _availableTopics.length,
+              itemCount: rankedTopics.length,
               itemBuilder: (context, index) {
-                final topic = _availableTopics[index];
+                final topic = rankedTopics[index];
                 final isSelected = _interestedTopics.contains(topic);
 
                 return Material(
@@ -598,6 +659,30 @@ class _PersonalizationOnboardingScreenState
         ],
       ),
     );
+  }
+
+  List<String> _rankedTopics() {
+    final selected = _interestedTopics.toList();
+    final bias = _learningGoal.isEmpty
+        ? <String>[]
+        : (_goalTopicBias[_learningGoal] ?? <String>[]);
+    final ordered = <String>[];
+
+    for (final topic in selected) {
+      if (!ordered.contains(topic)) ordered.add(topic);
+    }
+
+    for (final topic in bias) {
+      if (_availableTopics.contains(topic) && !ordered.contains(topic)) {
+        ordered.add(topic);
+      }
+    }
+
+    for (final topic in _availableTopics) {
+      if (!ordered.contains(topic)) ordered.add(topic);
+    }
+
+    return ordered;
   }
 
   IconData _getGoalIcon(String goal) {

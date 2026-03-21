@@ -616,8 +616,11 @@ class QuizSettingsSection extends ConsumerWidget {
         defaultTimePerQuestionSec:
             convexIntOrNull(updates['defaultTimePerQuestionSec']),
         timedModeEnabled: updates['timedModeEnabled'] as bool?,
+        hintsEnabled: updates['hintsEnabled'] as bool?,
+        imageQuestionsEnabled: updates['imageQuestionsEnabled'] as bool?,
         allowedChallengeTypes:
             updates['allowedChallengeTypes'] as List<String>?,
+        quickStartEnabled: updates['quickStartEnabled'] as bool?,
       );
       ref.invalidate(userPreferencesProvider);
     } catch (e) {
@@ -643,6 +646,10 @@ class QuizSettingsSection extends ConsumerWidget {
             prefsData?['timedModeEnabled'] as bool? ?? false;
         final bool currentQuickStart =
             prefsData?['quickStartEnabled'] as bool? ?? true;
+        final bool currentHintsEnabled =
+            prefsData?['hintsEnabled'] as bool? ?? false;
+        final bool currentImageQuestionsEnabled =
+            prefsData?['imageQuestionsEnabled'] as bool? ?? false;
         final List<String> currentAllowedTypes =
             convexStringList(prefsData?['allowedChallengeTypes'], ['quiz']);
         return Card(
@@ -842,6 +849,28 @@ class QuizSettingsSection extends ConsumerWidget {
                   },
                   secondary: const Icon(Icons.timer_outlined),
                 ),
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  title: const Text('Hints for Most Questions'),
+                  subtitle: const Text(
+                      'Allow short hints on most AI-generated questions'),
+                  value: currentHintsEnabled,
+                  onChanged: (value) {
+                    _savePreference(ref, {'hintsEnabled': value});
+                  },
+                  secondary: const Icon(Icons.lightbulb_outline),
+                ),
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  title: const Text('Visual Questions (Images + Charts)'),
+                  subtitle: const Text(
+                      'Enable creative image/diagram/chart-based questions'),
+                  value: currentImageQuestionsEnabled,
+                  onChanged: (value) {
+                    _savePreference(ref, {'imageQuestionsEnabled': value});
+                  },
+                  secondary: const Icon(Icons.image_outlined),
+                ),
               ],
             ),
           ),
@@ -952,7 +981,6 @@ class ProfileIdentitySection extends ConsumerStatefulWidget {
 class _ProfileIdentitySectionState
     extends ConsumerState<ProfileIdentitySection> {
   late final TextEditingController _usernameController;
-  late final TextEditingController _avatarController;
   bool _initialized = false;
   bool _isSaving = false;
 
@@ -960,13 +988,11 @@ class _ProfileIdentitySectionState
   void initState() {
     super.initState();
     _usernameController = TextEditingController();
-    _avatarController = TextEditingController();
   }
 
   @override
   void dispose() {
     _usernameController.dispose();
-    _avatarController.dispose();
     super.dispose();
   }
 
@@ -974,13 +1000,11 @@ class _ProfileIdentitySectionState
     if (_isSaving) return;
     setState(() => _isSaving = true);
     final username = _usernameController.text.trim();
-    final avatarUrl = _avatarController.text.trim();
 
     try {
       final userRepo = ref.read(userRepositoryProvider);
       await userRepo.updateProfile(
         username: username.isEmpty ? null : username,
-        avatarUrl: avatarUrl.isEmpty ? null : avatarUrl,
       );
       refreshProfileStats(ref);
       if (context.mounted) {
@@ -1011,7 +1035,6 @@ class _ProfileIdentitySectionState
         }
         if (!_initialized) {
           _usernameController.text = user['username']?.toString() ?? '';
-          _avatarController.text = user['avatarUrl']?.toString() ?? '';
           _initialized = true;
         }
         return Card(
@@ -1026,14 +1049,6 @@ class _ProfileIdentitySectionState
                   controller: _usernameController,
                   decoration: const InputDecoration(
                     labelText: 'Username',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _avatarController,
-                  decoration: const InputDecoration(
-                    labelText: 'Avatar URL (optional)',
                     border: OutlineInputBorder(),
                   ),
                 ),

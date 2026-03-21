@@ -54,4 +54,26 @@ class ProgressRepository {
     );
     return toMap(result);
   }
+
+  Future<Map<String, dynamic>> getReportSummary({
+    required String period,
+    String scope = 'all',
+  }) async {
+    final result = await _client.query(
+      name: 'progress:getReportSummary',
+      args: {'period': period, 'scope': scope},
+    );
+    return toMap(result);
+  }
+
+  Future<Map<String, dynamic>> getReportDetail({
+    required String period,
+    String scope = 'all',
+  }) async {
+    final result = await _client.query(
+      name: 'progress:getReportDetail',
+      args: {'period': period, 'scope': scope},
+    );
+    return toMap(result);
+  }
 }

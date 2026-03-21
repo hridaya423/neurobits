@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:neurobits/features/onboarding/streak_onboarding_screen.dart';
 import 'package:neurobits/core/providers.dart';
-import 'learning_path_onboarding_screen.dart';
+import 'learning_mode_onboarding_screen.dart';
 import 'quiz_preferences_onboarding_screen.dart';
 import 'personalization_onboarding_screen.dart';
 import 'identity_onboarding_screen.dart';
@@ -128,7 +128,7 @@ class _OnboardingGateState extends ConsumerState<OnboardingGate> {
                 await showDialog<bool?>(
                   context: context,
                   barrierDismissible: false,
-                  builder: (dialogContext2) => LearningPathOnboardingScreen(),
+                  builder: (dialogContext2) => LearningModeOnboardingScreen(),
                 );
                 try {
                   await userRepo.completeOnboarding();
