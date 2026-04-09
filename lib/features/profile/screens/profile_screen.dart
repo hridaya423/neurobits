@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:neurobits/core/providers.dart';
 import 'package:neurobits/services/convex_client_service.dart';
 import 'package:neurobits/core/widgets/facehash_avatar.dart';
@@ -202,6 +203,8 @@ class _ProfileOverviewTab extends ConsumerWidget {
                             ],
                           ),
                         ),
+                        const SizedBox(height: 20),
+                        const _ExamPerformanceSection(),
                       ],
                     ),
                   ),
@@ -334,6 +337,133 @@ class _BadgesSection extends ConsumerWidget {
   }
 }
 
+class _ExamPerformanceSection extends ConsumerWidget {
+  const _ExamPerformanceSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final dashboardAsync = ref.watch(userExamDashboardProvider);
+    final targetsAsync = ref.watch(userExamTargetsProvider);
+
+    return dashboardAsync.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (dashboard) {
+        final target = dashboard['target'] as Map<String, dynamic>?;
+        const coreSubjects = <String>{
+          'mathematics',
+          'english language',
+          'english literature',
+          'biology',
+          'chemistry',
+          'physics',
+        };
+        final hasGcseTargets = targetsAsync.maybeWhen(
+          data: (targets) => targets.any(
+            (row) {
+              if ((row['examFamily']?.toString().toLowerCase() ?? '') !=
+                  'gcse') {
+                return false;
+              }
+              final subject =
+                  row['subject']?.toString().toLowerCase().trim() ?? '';
+              return coreSubjects.contains(subject);
+            },
+          ),
+          orElse: () => false,
+        );
+        final hasSetup = target != null || hasGcseTargets;
+        final subject = target?['subject']?.toString() ?? '';
+        final board = target?['board']?.toString() ?? '';
+        final family = target?['examFamily']?.toString().toUpperCase() ?? '';
+        final avgMarksPct = (dashboard['avgMarksPct'] as num?)?.toDouble() ?? 0;
+        final attempts = convexInt(dashboard['totalAttempts']);
+
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    gradient: LinearGradient(
+                      colors: [
+                        Theme.of(context)
+                            .colorScheme
+                            .primary
+                            .withValues(alpha: 0.18),
+                        Theme.of(context)
+                            .colorScheme
+                            .secondary
+                            .withValues(alpha: 0.08),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    border: Border.all(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withValues(alpha: 0.22),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Exam Mode',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        target != null
+                            ? '$family • $subject • $board\n$attempts attempts • Avg marks ${(avgMarksPct * 100).toStringAsFixed(0)}%'
+                            : hasGcseTargets
+                                ? 'GCSE profiles are already configured. Open your exam hub to continue.'
+                                : 'Set up your GCSE workflow (subjects, boards, tiers, year group).',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: () => context.push('/exam-mode/setup'),
+                        icon: const Icon(Icons.auto_fix_high),
+                        label: Text(hasSetup ? 'Manage setup' : 'Start setup'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: hasSetup
+                            ? () => context.push('/exam-dashboard')
+                            : null,
+                        icon: const Icon(Icons.analytics_outlined),
+                        label: const Text('Open hub'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _ProfileSettingsTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -347,6 +477,8 @@ class _ProfileSettingsTab extends ConsumerWidget {
         AdaptiveDifficultySection(),
         const SizedBox(height: 16),
         NotificationSettingsSection(),
+        const SizedBox(height: 16),
+        ExamProfilesSection(),
         const SizedBox(height: 16),
         QuizSettingsSection(),
       ],
@@ -579,6 +711,208 @@ class NotificationSettingsSection extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class ExamProfilesSection extends ConsumerWidget {
+  const ExamProfilesSection({super.key});
+
+  String _profileLabel(Map<String, dynamic> target) {
+    final family = target['examFamily']?.toString() ?? '';
+    final board = target['board']?.toString() ?? '';
+    final subject = target['subject']?.toString() ?? '';
+    final level = target['level']?.toString() ?? '';
+    return [family, board, subject, level]
+        .where((part) => part.trim().isNotEmpty)
+        .join(' • ');
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final targetsAsync = ref.watch(userExamTargetsProvider);
+    return targetsAsync.when(
+      loading: () => const Card(
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      ),
+      error: (error, _) => Card(
+        child: ListTile(
+          title: const Text('Exam Profiles'),
+          subtitle: Text('Failed to load exam profiles: $error'),
+        ),
+      ),
+      data: (targets) {
+        final gcseTargets = targets
+            .where((target) =>
+                (target['examFamily']?.toString().toLowerCase() ?? '') ==
+                'gcse')
+            .toList();
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Exam Profiles',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'GCSE-only profiles for now. More exam families will be added later.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+                const SizedBox(height: 12),
+                if (gcseTargets.isEmpty)
+                  const Text('No GCSE profiles yet. Add one during setup.')
+                else
+                  ...gcseTargets.map((target) {
+                    final isActive = target['isActive'] == true;
+                    final id = target['_id']?.toString();
+                    final country = target['countryName']?.toString() ?? '';
+                    final subtitle = _profileLabel(target);
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        color: isActive
+                            ? Theme.of(context)
+                                .colorScheme
+                                .primary
+                                .withValues(alpha: 0.1)
+                            : Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest
+                                .withValues(alpha: 0.2),
+                        border: Border.all(
+                          color: isActive
+                              ? Theme.of(context)
+                                  .colorScheme
+                                  .primary
+                                  .withValues(alpha: 0.35)
+                              : Theme.of(context)
+                                  .colorScheme
+                                  .outline
+                                  .withValues(alpha: 0.25),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  country,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .labelMedium
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                ),
+                              ),
+                              if (isActive)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .primary
+                                        .withValues(alpha: 0.2),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    'Active',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelSmall
+                                        ?.copyWith(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .primary,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(subtitle),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              if (!isActive && id != null)
+                                OutlinedButton.icon(
+                                  onPressed: () async {
+                                    try {
+                                      final repo =
+                                          ref.read(examRepositoryProvider);
+                                      await repo.setActiveTarget(targetId: id);
+                                      ref.invalidate(userExamTargetProvider);
+                                      ref.invalidate(userExamTargetsProvider);
+                                    } catch (e) {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                                'Could not switch profile: $e'),
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  },
+                                  icon: const Icon(Icons.check_circle_outline),
+                                  label: const Text('Set Active'),
+                                ),
+                              if (!isActive && id != null)
+                                const SizedBox(width: 8),
+                              if (id != null)
+                                OutlinedButton.icon(
+                                  onPressed: () async {
+                                    try {
+                                      final repo =
+                                          ref.read(examRepositoryProvider);
+                                      await repo.archiveTarget(targetId: id);
+                                      ref.invalidate(userExamTargetProvider);
+                                      ref.invalidate(userExamTargetsProvider);
+                                    } catch (e) {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                                'Could not archive profile: $e'),
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  },
+                                  icon: const Icon(Icons.archive_outlined),
+                                  label: const Text('Archive'),
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -1117,7 +1451,7 @@ class _StreakBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      color: color.withOpacity(0.09),
+      color: color.withValues(alpha: 0.09),
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       child: Padding(

@@ -536,6 +536,7 @@ class AIChallengeScreen extends ConsumerStatefulWidget {
   final String? challengeId;
 
   final String? userPathChallengeId;
+  final String? examTargetId;
   const AIChallengeScreen({
     required this.topic,
     required this.questions,
@@ -544,6 +545,7 @@ class AIChallengeScreen extends ConsumerStatefulWidget {
     this.hintsEnabled = false,
     this.challengeId,
     this.userPathChallengeId,
+    this.examTargetId,
     super.key,
   });
   @override
@@ -565,6 +567,12 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
   int _finalAnsweredCount = 0;
   double _finalAccuracy = 0.0;
   int _finalTimeTaken = 0;
+  double _finalMarksAwarded = 0.0;
+  double _finalMarksAvailable = 0.0;
+  List<Map<String, dynamic>> _finalQuestionEvaluations = [];
+
+  bool get _isExamSession =>
+      widget.examTargetId != null && widget.examTargetId!.trim().isNotEmpty;
 
   String _currentQuestionHint(Map<String, dynamic> question) {
     final hint = question['hint']?.toString().trim() ?? '';
@@ -740,7 +748,421 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
         if (idx >= 0) return idx;
       }
     }
-    return 0;
+    return -1;
+  }
+
+  Map<String, dynamic>? _extractMarkScheme(Map<String, dynamic> question) {
+    final raw = question['markScheme'] ?? question['mark_scheme'];
+    if (raw is Map<String, dynamic>) return raw;
+    if (raw is Map) {
+      return Map<String, dynamic>.from(
+        raw.map((key, value) => MapEntry(key.toString(), value)),
+      );
+    }
+    return null;
+  }
+
+  List<Map<String, dynamic>> _extractCriteria(Map<String, dynamic> markScheme) {
+    final raw = markScheme['criteria'];
+    if (raw is! List) return const <Map<String, dynamic>>[];
+    return raw
+        .whereType<Map>()
+        .map(
+          (item) => Map<String, dynamic>.from(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          ),
+        )
+        .toList();
+  }
+
+  List<String> _markSchemeAcceptableAnswers(Map<String, dynamic> markScheme) {
+    final raw =
+        markScheme['acceptable_answers'] ?? markScheme['acceptableAnswers'];
+    if (raw is! List) return const <String>[];
+    return raw
+        .map((item) => item?.toString().trim().toLowerCase())
+        .whereType<String>()
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList();
+  }
+
+  List<Map<String, dynamic>> _progressiveHintsForQuestion(
+      Map<String, dynamic> question) {
+    final rawHints =
+        question['progressiveHints'] ?? question['progressive_hints'];
+    if (rawHints is List) {
+      final mapped = rawHints
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(
+                item.map((key, value) => MapEntry(key.toString(), value)),
+              ))
+          .toList();
+      if (mapped.isNotEmpty) {
+        return mapped;
+      }
+    }
+
+    final markScheme = _extractMarkScheme(question);
+    if (markScheme == null) return const <Map<String, dynamic>>[];
+    final criteria = _extractCriteria(markScheme);
+    if (criteria.isEmpty) return const <Map<String, dynamic>>[];
+
+    return criteria.map((criterion) {
+      final label = criterion['label']?.toString().trim() ?? '';
+      final description = criterion['description']?.toString().trim() ?? '';
+      final keywords = _criterionKeywords(criterion);
+      final hint = label.isNotEmpty
+          ? 'Include a clear point about $label.'
+          : (description.isNotEmpty
+              ? description
+              : 'Include one mark-scheme point.');
+      return {
+        if (label.isNotEmpty) 'label': label,
+        if (description.isNotEmpty) 'description': description,
+        if (keywords.isNotEmpty) 'keywords': keywords,
+        'hint': hint,
+      };
+    }).toList();
+  }
+
+  bool _supportsAssistedExplain(
+    Map<String, dynamic> question,
+    List<Map<String, dynamic>> progressiveHints,
+  ) {
+    if (!_isExamSession) return false;
+    final type = _questionType(question);
+    if (type != 'input' && type != 'fill_blank') return false;
+    final marksAvailable = _questionMarksAvailable(question);
+    return marksAvailable >= 3 || progressiveHints.length >= 3;
+  }
+
+  double _questionMarksAvailable(Map<String, dynamic> question) {
+    if (!_isExamSession) return 0.0;
+    final markScheme = _extractMarkScheme(question);
+    if (markScheme == null) return 0.0;
+    final total = markScheme['total_marks'] ?? markScheme['totalMarks'];
+    if (total is num && total > 0) return total.toDouble();
+
+    final criteria = _extractCriteria(markScheme);
+    double sum = 0;
+    for (final criterion in criteria) {
+      final marks = criterion['marks'];
+      if (marks is num && marks > 0) {
+        sum += marks.toDouble();
+      }
+    }
+    if (sum > 0) return sum;
+    return 0.0;
+  }
+
+  static const Set<String> _keywordStopWords = {
+    'the',
+    'and',
+    'for',
+    'with',
+    'that',
+    'this',
+    'from',
+    'into',
+    'your',
+    'must',
+    'should',
+    'about',
+    'include',
+    'explain',
+    'using',
+    'show',
+    'state',
+    'correct',
+    'answer',
+    'marks',
+    'mark',
+  };
+
+  List<String> _keywordTokens(String text) {
+    final normalized =
+        text.toLowerCase().replaceAll(RegExp(r'[^a-z0-9 ]+'), ' ');
+    return normalized
+        .split(RegExp(r'\s+'))
+        .map((token) => token.trim())
+        .where(
+            (token) => token.length >= 4 && !_keywordStopWords.contains(token))
+        .toList();
+  }
+
+  List<String> _criterionKeywords(Map<String, dynamic> criterion) {
+    final explicitRaw = criterion['keywords'];
+    final explicit = explicitRaw is List
+        ? explicitRaw
+            .map((value) => value?.toString().trim().toLowerCase())
+            .whereType<String>()
+            .where((value) => value.isNotEmpty)
+            .toList()
+        : const <String>[];
+    if (explicit.isNotEmpty) {
+      return explicit;
+    }
+
+    final acceptableRaw =
+        criterion['acceptable_answers'] ?? criterion['acceptableAnswers'];
+    if (acceptableRaw is List) {
+      final acceptableKeywords = acceptableRaw
+          .map((value) => value?.toString().trim().toLowerCase())
+          .whereType<String>()
+          .where((value) => value.isNotEmpty)
+          .expand((value) => _keywordTokens(value))
+          .toSet()
+          .toList();
+      if (acceptableKeywords.isNotEmpty) {
+        return acceptableKeywords;
+      }
+    }
+
+    final label = criterion['label']?.toString() ?? '';
+    final description = criterion['description']?.toString() ?? '';
+    final tokens = _keywordTokens('$label $description');
+    if (tokens.length > 8) return tokens.take(8).toList();
+    return tokens;
+  }
+
+  List<String> _criterionAcceptableAnswers(Map<String, dynamic> criterion) {
+    final out = <String>[];
+    final raw =
+        criterion['acceptable_answers'] ?? criterion['acceptableAnswers'];
+    if (raw is List) {
+      for (final item in raw) {
+        final value = item?.toString().trim().toLowerCase() ?? '';
+        if (value.isNotEmpty) out.add(value);
+      }
+    }
+    return out;
+  }
+
+  String _questionType(Map<String, dynamic> question) {
+    return question['type']?.toString().toLowerCase() ??
+        (question['options'] != null
+            ? 'mcq'
+            : (question['solution'] != null ? 'code' : 'input'));
+  }
+
+  bool _isObjectiveType(String type) {
+    return type == 'mcq' || type == 'multi_select' || type == 'ordering';
+  }
+
+  Map<String, dynamic> _evaluateQuestionAttempt(int questionIndex) {
+    final question = _questions[questionIndex];
+    final userAnswer = _selectedAnswers[questionIndex];
+    final selectedAnswerText = _selectedAnswerText(questionIndex);
+    final answerLower = selectedAnswerText.toLowerCase();
+    final answered = selectedAnswerText.trim().isNotEmpty;
+    final isCorrect =
+        userAnswer != null && QuizReview.isAnswerCorrect(question, userAnswer);
+    final marksAvailable = _questionMarksAvailable(question);
+    final type = _questionType(question);
+
+    if (!answered) {
+      return {
+        'answered': false,
+        'isCorrect': false,
+        'marksAwarded': 0.0,
+        'marksAvailable': marksAvailable,
+        'reasonCode': 'unanswered',
+        'reasonDetail': 'No answer was submitted for this question.',
+      };
+    }
+
+    if (isCorrect) {
+      return {
+        'answered': true,
+        'isCorrect': true,
+        'marksAwarded': marksAvailable,
+        'marksAvailable': marksAvailable,
+        'reasonCode': 'all_criteria_met',
+        'reasonDetail': 'Response satisfies the required mark-scheme points.',
+      };
+    }
+
+    final markScheme = _extractMarkScheme(question);
+    if (markScheme == null || _isObjectiveType(type)) {
+      return {
+        'answered': true,
+        'isCorrect': false,
+        'marksAwarded': 0.0,
+        'marksAvailable': marksAvailable,
+        'reasonCode': 'criteria_not_met',
+        'reasonDetail': _reasonDetailForIncorrect(question),
+      };
+    }
+
+    final acceptableAnswers = _markSchemeAcceptableAnswers(markScheme);
+    if (acceptableAnswers.isNotEmpty &&
+        acceptableAnswers.any((answer) => answerLower.contains(answer))) {
+      return {
+        'answered': true,
+        'isCorrect': true,
+        'marksAwarded': marksAvailable,
+        'marksAvailable': marksAvailable,
+        'reasonCode': 'all_criteria_met',
+        'reasonDetail': 'Response matches an accepted mark-scheme answer.',
+      };
+    }
+
+    final criteria = _extractCriteria(markScheme);
+    if (criteria.isEmpty) {
+      return {
+        'answered': true,
+        'isCorrect': false,
+        'marksAwarded': 0.0,
+        'marksAvailable': marksAvailable,
+        'reasonCode': 'criteria_not_met',
+        'reasonDetail': _reasonDetailForIncorrect(question),
+      };
+    }
+
+    double awarded = 0;
+    final metLabels = <String>[];
+    final missingLabels = <String>[];
+
+    final criteriaCount = criteria.length;
+    final fallbackPerCriterion =
+        criteriaCount > 0 ? (marksAvailable / criteriaCount) : 0.0;
+
+    for (final criterion in criteria) {
+      final label = criterion['label']?.toString().trim();
+      final marksRaw = criterion['marks'];
+      final criterionMarks = (marksRaw is num && marksRaw > 0)
+          ? marksRaw.toDouble()
+          : fallbackPerCriterion;
+
+      final keywords = _criterionKeywords(criterion);
+      final acceptableAnswers = _criterionAcceptableAnswers(criterion);
+      final keywordMatched = keywords.isNotEmpty &&
+          keywords.any((keyword) => answerLower.contains(keyword));
+      final acceptableMatched = acceptableAnswers.isNotEmpty &&
+          acceptableAnswers.any((answer) => answerLower.contains(answer));
+      final matched = keywordMatched || acceptableMatched;
+      if (matched) {
+        awarded += criterionMarks;
+        if (label != null && label.isNotEmpty) metLabels.add(label);
+      } else {
+        if (label != null && label.isNotEmpty) missingLabels.add(label);
+      }
+    }
+
+    if (awarded > marksAvailable) {
+      awarded = marksAvailable;
+    }
+
+    final reasonCode =
+        awarded > 0 ? 'partial_criteria_met' : 'criteria_not_met';
+    final reasonDetail = awarded > 0
+        ? (missingLabels.isNotEmpty
+            ? 'Partial credit awarded. Missing: ${missingLabels.take(3).join(', ')}.'
+            : 'Partial credit awarded for matching mark-scheme points.')
+        : _reasonDetailForIncorrect(question);
+
+    return {
+      'answered': true,
+      'isCorrect': false,
+      'marksAwarded': awarded,
+      'marksAvailable': marksAvailable,
+      'reasonCode': reasonCode,
+      'reasonDetail': reasonDetail,
+      if (metLabels.isNotEmpty) 'metLabels': metLabels,
+      if (missingLabels.isNotEmpty) 'missingLabels': missingLabels,
+    };
+  }
+
+  String _selectedAnswerText(int questionIndex) {
+    if (questionIndex < 0 || questionIndex >= _questions.length) return '';
+    final selected = _selectedAnswers[questionIndex];
+    final question = _questions[questionIndex];
+    if (selected == null) return '';
+
+    if (selected is List) {
+      final parts = selected
+          .map((entry) {
+            if (entry is num) {
+              final options = question['options'];
+              if (options is List) {
+                final idx = entry.toInt();
+                if (idx >= 0 && idx < options.length) {
+                  final value = options[idx];
+                  return value?.toString();
+                }
+              }
+              return entry.toString();
+            }
+            if (entry is Map && entry['text'] != null) {
+              return entry['text'].toString();
+            }
+            return entry?.toString();
+          })
+          .whereType<String>()
+          .where((value) => value.trim().isNotEmpty)
+          .toList();
+      return parts.join(' | ');
+    }
+
+    if (selected is num) {
+      final options = question['options'];
+      if (options is List) {
+        final idx = selected.toInt();
+        if (idx >= 0 && idx < options.length) {
+          final value = options[idx];
+          return value?.toString() ?? selected.toString();
+        }
+      }
+      return selected.toString();
+    }
+
+    if (selected is Map && selected['text'] != null) {
+      return _normalizeAnswerForScoring(selected['text'].toString());
+    }
+
+    return _normalizeAnswerForScoring(selected.toString());
+  }
+
+  String _normalizeAnswerForScoring(String value) {
+    var text = value.replaceAll('\r\n', '\n').trim();
+    if (text.isEmpty) return '';
+    text = text.replaceAll(
+      RegExp(r'(^|\n)\s*(point|which means|explain)\s*:\s*',
+          caseSensitive: false),
+      r'$1',
+    );
+    text = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return text;
+  }
+
+  String _reasonDetailForIncorrect(Map<String, dynamic> question) {
+    final markScheme = _extractMarkScheme(question);
+    if (markScheme != null) {
+      final criteriaRaw = markScheme['criteria'];
+      if (criteriaRaw is List) {
+        final bullets = criteriaRaw
+            .whereType<Map>()
+            .take(2)
+            .map((criterion) {
+              final label = criterion['label']?.toString().trim() ?? '';
+              final desc = criterion['description']?.toString().trim() ?? '';
+              if (label.isNotEmpty && desc.isNotEmpty) {
+                return '$label: $desc';
+              }
+              return label.isNotEmpty ? label : desc;
+            })
+            .where((text) => text.trim().isNotEmpty)
+            .toList();
+        if (bullets.isNotEmpty) {
+          return bullets.join(' | ');
+        }
+      }
+    }
+    if (_isExamSession) {
+      return 'Answer did not satisfy the mark-scheme criteria.';
+    }
+    return '';
   }
 
   Future<void> _recordProgress() async {
@@ -761,25 +1183,50 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
       final perQuestionSeconds = _questions.isEmpty
           ? 0
           : (_finalTimeTaken / _questions.length).round();
+      final evaluations = _finalQuestionEvaluations.isNotEmpty
+          ? _finalQuestionEvaluations
+          : List.generate(_questions.length, _evaluateQuestionAttempt);
+      final activeExamTargetId = widget.examTargetId?.trim().isNotEmpty == true
+          ? widget.examTargetId!.trim()
+          : null;
       for (int i = 0; i < _questions.length; i++) {
-        final isCorrect =
-            QuizReview.isAnswerCorrect(_questions[i], _selectedAnswers[i]);
+        final evaluation = evaluations[i];
+        final isCorrect = evaluation['isCorrect'] == true;
+        final marksAvailable =
+            (evaluation['marksAvailable'] as num?)?.toDouble() ??
+                _questionMarksAvailable(_questions[i]);
+        final marksAwarded =
+            (evaluation['marksAwarded'] as num?)?.toDouble() ?? 0.0;
+        final reasonCode = evaluation['reasonCode']?.toString() ??
+            (isCorrect ? 'all_criteria_met' : 'criteria_not_met');
+        final reasonDetail = evaluation['reasonDetail']?.toString() ?? '';
         answers.add({
           'questionIndex': i,
           'selectedOption': _resolveSelectedOptionIndex(i),
+          'selectedAnswerText': _selectedAnswerText(i),
           'isCorrect': isCorrect,
           'timeSpentSeconds': perQuestionSeconds,
+          'marksAwarded': marksAwarded,
+          'marksAvailable': marksAvailable,
+          'reasonCode': reasonCode,
+          if (reasonDetail.trim().isNotEmpty) 'reasonDetail': reasonDetail,
         });
       }
 
       if (hasChallengeId) {
         final progressRepo = ref.read(progressRepositoryProvider);
+        final normalizedMarkScore = _finalMarksAvailable > 0
+            ? (_finalMarksAwarded / _finalMarksAvailable)
+            : _finalAccuracy;
         await progressRepo.recordQuizCompletion(
           challengeId: challengeId,
-          completed: _finalAccuracy >= 0.75,
+          completed: normalizedMarkScore >= 0.75,
           attempts: 1,
           timeTakenSeconds: _finalTimeTaken,
           accuracy: _finalAccuracy,
+          examTargetId: activeExamTargetId,
+          marksAwarded: _isExamSession ? _finalMarksAwarded : null,
+          marksAvailable: _isExamSession ? _finalMarksAvailable : null,
           answers: answers,
         );
       }
@@ -990,11 +1437,29 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
       _timer?.cancel();
       int correctCount = 0;
       int answeredCount = 0;
+      double marksAwarded = 0.0;
+      double marksAvailable = 0.0;
+      final evaluations = <Map<String, dynamic>>[];
       for (int i = 0; i < _questions.length; i++) {
-        if (_selectedAnswers[i] != null) answeredCount++;
-        if (_selectedAnswers[i] != null &&
-            QuizReview.isAnswerCorrect(_questions[i], _selectedAnswers[i])) {
+        final evaluation = _evaluateQuestionAttempt(i);
+        evaluations.add(evaluation);
+        final qMarksAvailable =
+            (evaluation['marksAvailable'] as num?)?.toDouble() ??
+                _questionMarksAvailable(_questions[i]);
+        marksAvailable += qMarksAvailable;
+        if (evaluation['answered'] == true) answeredCount++;
+        if (evaluation['isCorrect'] == true) {
           correctCount++;
+        }
+        marksAwarded += (evaluation['marksAwarded'] as num?)?.toDouble() ?? 0.0;
+        _questions[i]['marksAwarded'] =
+            (evaluation['marksAwarded'] as num?)?.toDouble() ?? 0.0;
+        _questions[i]['marksAvailable'] = qMarksAvailable;
+        _questions[i]['markReasonCode'] =
+            evaluation['reasonCode']?.toString() ?? '';
+        final reasonDetail = evaluation['reasonDetail']?.toString();
+        if (reasonDetail != null && reasonDetail.trim().isNotEmpty) {
+          _questions[i]['markReasonDetail'] = reasonDetail;
         }
       }
       final safeAccuracy =
@@ -1007,6 +1472,9 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
           _finalAnsweredCount = answeredCount;
           _finalAccuracy = safeAccuracy;
           _finalTimeTaken = timeTaken;
+          _finalMarksAwarded = marksAwarded;
+          _finalMarksAvailable = marksAvailable;
+          _finalQuestionEvaluations = evaluations;
         });
       }
 
@@ -1051,7 +1519,13 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
             Padding(
               padding: const EdgeInsets.all(8.0),
               child: Text(
-                'Question ${_currentQuestionIndex + 1}/${_questions.length}',
+                () {
+                  final marks = _questionMarksAvailable(currentQuestion);
+                  final marksLabel = marks > 0
+                      ? ' (${marks.toStringAsFixed(marks % 1 == 0 ? 0 : 1)} marks)'
+                      : '';
+                  return 'Q${_currentQuestionIndex + 1}/${_questions.length}$marksLabel';
+                }(),
                 style: Theme.of(context).textTheme.titleMedium,
               ),
             ),
@@ -1166,10 +1640,19 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
                       );
                     case 'input':
                     case 'fill_blank':
+                      final progressiveHints =
+                          _progressiveHintsForQuestion(currentQuestion);
+                      final enableAssistedExplain = _supportsAssistedExplain(
+                        currentQuestion,
+                        progressiveHints,
+                      );
                       return InputChallenge(
                         key: ValueKey(_currentQuestionIndex),
                         question: currentQuestion['question'],
                         hint: effectiveHint,
+                        progressiveHints: progressiveHints,
+                        enableProgressiveHints: widget.hintsEnabled,
+                        enableAssistedExplain: enableAssistedExplain,
                         imageUrl: effectiveImageUrl,
                         chartSpec: effectiveChartSpec,
                         solution: currentQuestion['solution'] ??
@@ -1260,6 +1743,7 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
   Widget _buildResultContent(Map<String, dynamic> analytics) {
     final avgTimeSeconds = analytics['avgTimeSeconds'] ?? 0;
     final avgAccuracy = analytics['avgAccuracy'] ?? 0.0;
+    final avgMarksPct = analytics['avgMarksPct'] ?? 0.0;
     final bestAccuracy = analytics['bestAccuracy'] ?? 0.0;
     final bestTimeSeconds = analytics['bestTimeSeconds'] ?? 0;
     final lastAttemptedAt = analytics['lastAttemptedAt'] ?? 0;
@@ -1290,6 +1774,9 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
         : null;
     final avgAccuracyText = totalAttempts > 0
         ? '${((avgAccuracy as num) * 100).toStringAsFixed(1)}%'
+        : null;
+    final avgMarksText = totalAttempts > 0 && avgMarksPct is num
+        ? '${(avgMarksPct * 100).toStringAsFixed(1)}%'
         : null;
 
     return Column(
@@ -1354,8 +1841,10 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
                   icon: Icons.bar_chart,
                   label: 'Accuracy',
                   value: '${(_finalAccuracy * 100).toStringAsFixed(1)}%',
-                  secondaryLabel: 'Avg',
-                  secondaryValue: avgAccuracyText,
+                  secondaryLabel: _finalMarksAvailable > 0 ? 'Marks' : 'Avg',
+                  secondaryValue: _finalMarksAvailable > 0
+                      ? '${_finalMarksAwarded.toStringAsFixed(1)}/${_finalMarksAvailable.toStringAsFixed(1)}'
+                      : avgMarksText ?? avgAccuracyText,
                   color: Colors.teal,
                 ),
               ),
@@ -1444,6 +1933,9 @@ class _AIChallengeScreenState extends ConsumerState<AIChallengeScreen> {
                   selectedAnswers: _selectedAnswers,
                   totalTime: _finalTimeTaken,
                   accuracy: _finalAccuracy,
+                  marksAwarded: _finalMarksAwarded,
+                  marksAvailable: _finalMarksAvailable,
+                  examMode: _isExamSession,
                   topic: widget.topic,
                   quizName: widget.quizName,
                 ),
@@ -1530,6 +2022,7 @@ class ChallengeScreen extends AIChallengeScreen {
     super.hintsEnabled,
     super.challengeId,
     super.userPathChallengeId,
+    super.examTargetId,
     super.key,
   });
 }

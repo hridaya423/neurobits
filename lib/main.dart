@@ -47,7 +47,7 @@ void main() async {
     final convexClient = await ConvexClientService.init();
 
     if (authService.currentStatus == AuthStatus.authenticated) {
-      final idToken = await authService.getIdToken(forceRefresh: true);
+      final idToken = await authService.getIdToken();
       if (idToken != null) {
         await convexClient.setAuthToken(idToken);
 

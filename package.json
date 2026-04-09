@@ -3,6 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "description": "Convex backend for Neurobits",
+  "scripts": {
+    "seed:examCatalog": "convex import --table examCatalog --replace -y convex/seed_data/exam_catalog.json",
+    "seed:examKnowledge": "python3 scripts/savemyexams/json_to_jsonl.py --input convex/seed_data/exam_knowledge.json --output convex/seed_data/exam_knowledge.jsonl && convex import --table examKnowledge --replace -y convex/seed_data/exam_knowledge.jsonl",
+    "seed:examAll": "npm run seed:examCatalog && npm run seed:examKnowledge",
+    "sme:scrape": "python3 scripts/savemyexams/scrape_curriculum.py --help",
+    "sme:normalize": "python3 scripts/savemyexams/normalize_to_exam_knowledge.py --help",
+    "sme:bulk": "python3 scripts/savemyexams/bulk_ingest_gcse.py --help"
+  },
   "dependencies": {
     "convex": "^1.31.2"
   },

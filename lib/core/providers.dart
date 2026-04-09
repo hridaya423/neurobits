@@ -11,6 +11,7 @@ import 'package:neurobits/repositories/user_repository.dart';
 import 'package:neurobits/repositories/challenge_repository.dart';
 import 'package:neurobits/repositories/topic_repository.dart';
 import 'package:neurobits/repositories/preference_repository.dart';
+import 'package:neurobits/repositories/exam_repository.dart';
 import 'package:neurobits/repositories/progress_repository.dart';
 import 'package:neurobits/repositories/path_repository.dart';
 import 'package:neurobits/repositories/badge_repository.dart';
@@ -33,6 +34,10 @@ final topicRepositoryProvider = Provider<TopicRepository>((ref) {
 
 final preferenceRepositoryProvider = Provider<PreferenceRepository>((ref) {
   return PreferenceRepository(ConvexClientService.instance);
+});
+
+final examRepositoryProvider = Provider<ExamRepository>((ref) {
+  return ExamRepository(ConvexClientService.instance);
 });
 
 final progressRepositoryProvider = Provider<ProgressRepository>((ref) {
@@ -324,6 +329,783 @@ final userPreferencesProvider =
   if (user == null) return null;
   final prefRepo = ref.read(preferenceRepositoryProvider);
   return await prefRepo.getMine();
+});
+
+final userExamTargetProvider =
+    FutureProvider<Map<String, dynamic>?>((ref) async {
+  final user = ref.watch(userProvider).value;
+  if (user == null) return null;
+  final examRepo = ref.read(examRepositoryProvider);
+  return await examRepo.getMyTarget();
+});
+
+final userExamTargetsProvider =
+    FutureProvider<List<Map<String, dynamic>>>((ref) async {
+  final user = ref.watch(userProvider).value;
+  if (user == null) return const [];
+  final examRepo = ref.read(examRepositoryProvider);
+  return await examRepo.listMyTargets();
+});
+
+final examCatalogProvider =
+    FutureProvider.family<List<Map<String, dynamic>>, Map<String, dynamic>>(
+  (ref, filters) async {
+    final examRepo = ref.read(examRepositoryProvider);
+    final countryCode = filters['countryCode']?.toString();
+    final examFamily = filters['examFamily']?.toString();
+    final subject = filters['subject']?.toString();
+    final query = filters['query']?.toString();
+    final rawLimit = filters['limit'];
+    final limit = rawLimit is num ? rawLimit.toInt() : 50;
+    return await examRepo.listCatalog(
+      countryCode: countryCode,
+      examFamily: examFamily,
+      subject: subject,
+      query: query,
+      limit: limit,
+    );
+  },
+);
+
+final examIntentMatchesProvider =
+    FutureProvider.family<List<Map<String, dynamic>>, String>(
+  (ref, query) async {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return const [];
+    final examRepo = ref.read(examRepositoryProvider);
+    return await examRepo.resolveIntent(trimmed, limit: 6);
+  },
+);
+
+final examCatalogStatusProvider =
+    FutureProvider<Map<String, dynamic>>((ref) async {
+  final examRepo = ref.read(examRepositoryProvider);
+  return await examRepo.getCatalogStatus();
+});
+
+final examCatalogAllProvider = FutureProvider<List<Map<String, dynamic>>>(
+  (ref) async {
+    final examRepo = ref.read(examRepositoryProvider);
+    return await examRepo.listCatalog(
+      countryCode: 'GB',
+      examFamily: 'gcse',
+      coreOnly: true,
+      limit: 2000,
+    );
+  },
+);
+
+final userExamDashboardProvider =
+    FutureProvider<Map<String, dynamic>>((ref) async {
+  final user = ref.watch(userProvider).value;
+  if (user == null) {
+    return {
+      'target': null,
+      'currentGrade': null,
+      'targetGrade': null,
+      'projectedGrade': 0,
+      'gradeGapToTarget': 0,
+      'gradeStatus': 'no_target',
+      'totalAttempts': 0,
+      'completedAttempts': 0,
+      'avgAccuracy': 0,
+      'avgMarksPct': 0,
+      'bestMarksPct': 0,
+      'totalStudySeconds': 0,
+      'lastAttemptedAt': 0,
+      'trend7d': const <Map<String, dynamic>>[],
+      'weakTopics': const <Map<String, dynamic>>[],
+    };
+  }
+  final examRepo = ref.read(examRepositoryProvider);
+  return await examRepo.getMyExamDashboard();
+});
+
+final userExamDashboardByTargetProvider =
+    FutureProvider.family<Map<String, dynamic>, String?>((ref, targetId) async {
+  final user = ref.watch(userProvider).value;
+  if (user == null) {
+    return {
+      'target': null,
+      'currentGrade': null,
+      'targetGrade': null,
+      'projectedGrade': 0,
+      'gradeGapToTarget': 0,
+      'gradeStatus': 'no_target',
+      'totalAttempts': 0,
+      'completedAttempts': 0,
+      'avgAccuracy': 0,
+      'avgMarksPct': 0,
+      'bestMarksPct': 0,
+      'totalStudySeconds': 0,
+      'lastAttemptedAt': 0,
+      'trend7d': const <Map<String, dynamic>>[],
+      'weakTopics': const <Map<String, dynamic>>[],
+    };
+  }
+  final examRepo = ref.read(examRepositoryProvider);
+  return await examRepo.getMyExamDashboard(targetId: targetId);
+});
+
+final userExamProfileByTargetProvider =
+    FutureProvider.family<Map<String, dynamic>, String>((ref, targetId) async {
+  final user = ref.watch(userProvider).value;
+  if (user == null) {
+    return {
+      'target': null,
+      'sourceCount': 0,
+      'sections': const <Map<String, dynamic>>[],
+      'papers': const <Map<String, dynamic>>[],
+      'examTechniques': const <Map<String, dynamic>>[],
+      'pitfalls': const <Map<String, dynamic>>[],
+      'priorityPitfalls': const <Map<String, dynamic>>[],
+      'weaknessTags': const <String>[],
+    };
+  }
+  final examRepo = ref.read(examRepositoryProvider);
+  return await examRepo.getMyExamProfile(targetId: targetId);
+});
+
+@immutable
+class ExamSubjectReportArgs {
+  final String targetId;
+  final String period;
+
+  const ExamSubjectReportArgs({
+    required this.targetId,
+    required this.period,
+  });
+
+  @override
+  bool operator ==(Object other) {
+    return other is ExamSubjectReportArgs &&
+        other.targetId == targetId &&
+        other.period == period;
+  }
+
+  @override
+  int get hashCode => Object.hash(targetId, period);
+}
+
+final userExamSubjectReportProvider =
+    FutureProvider.family<Map<String, dynamic>, ExamSubjectReportArgs>(
+  (ref, args) async {
+    final user = ref.watch(userProvider).value;
+    if (user == null) {
+      return {
+        'target': null,
+        'period': args.period,
+        'windowStart': 0,
+        'windowEnd': 0,
+        'previousWindowStart': 0,
+        'totalAttempts': 0,
+        'completedAttempts': 0,
+        'avgAccuracy': 0,
+        'avgMarksPct': 0,
+        'bestMarksPct': 0,
+        'totalStudySeconds': 0,
+        'marksDeltaPct': 0,
+        'accuracyDeltaPct': 0,
+        'consistency': {
+          'activeDays': 0,
+          'windowDays': 0,
+          'consistencyPct': 0,
+          'completionRate': 0,
+          'sessionsPerActiveDay': 0,
+          'dailyMinutes': 0,
+          'cadenceDelta': 0,
+        },
+        'progression': {
+          'trendSlopePct': 0,
+          'volatilityPct': 0,
+          'bestRunDays': 0,
+          'momentumLabel': 'build_evidence',
+        },
+        'execution': {
+          'avgSecondsPerAttempt': 0,
+          'avgSecondsPerQuestion': 0,
+          'speedAccuracySignal': 'insufficient_data',
+          'questionsEstimated': 0,
+        },
+        'errorProfile': const <Map<String, dynamic>>[],
+        'motivation': {
+          'wins': const <String>[],
+          'nextMilestone': '',
+        },
+        'insightActions': const <Map<String, dynamic>>[],
+        'trend': const <Map<String, dynamic>>[],
+        'topicBreakdown': const <Map<String, dynamic>>[],
+      };
+    }
+
+    final targetId = args.targetId.trim();
+    final period = args.period.trim().isEmpty ? 'weekly' : args.period.trim();
+    if (targetId.isEmpty) {
+      return {
+        'target': null,
+        'period': period,
+        'windowStart': 0,
+        'windowEnd': 0,
+        'previousWindowStart': 0,
+        'totalAttempts': 0,
+        'completedAttempts': 0,
+        'avgAccuracy': 0,
+        'avgMarksPct': 0,
+        'bestMarksPct': 0,
+        'totalStudySeconds': 0,
+        'marksDeltaPct': 0,
+        'accuracyDeltaPct': 0,
+        'consistency': {
+          'activeDays': 0,
+          'windowDays': 0,
+          'consistencyPct': 0,
+          'completionRate': 0,
+          'sessionsPerActiveDay': 0,
+          'dailyMinutes': 0,
+          'cadenceDelta': 0,
+        },
+        'progression': {
+          'trendSlopePct': 0,
+          'volatilityPct': 0,
+          'bestRunDays': 0,
+          'momentumLabel': 'build_evidence',
+        },
+        'execution': {
+          'avgSecondsPerAttempt': 0,
+          'avgSecondsPerQuestion': 0,
+          'speedAccuracySignal': 'insufficient_data',
+          'questionsEstimated': 0,
+        },
+        'errorProfile': const <Map<String, dynamic>>[],
+        'motivation': {
+          'wins': const <String>[],
+          'nextMilestone': '',
+        },
+        'insightActions': const <Map<String, dynamic>>[],
+        'trend': const <Map<String, dynamic>>[],
+        'topicBreakdown': const <Map<String, dynamic>>[],
+      };
+    }
+
+    final examRepo = ref.read(examRepositoryProvider);
+    return await examRepo.getMyExamSubjectReport(
+      targetId: targetId,
+      period: period,
+    );
+  },
+);
+
+const int _dayMs = 86400000;
+const Set<String> _gcseCoreSubjects = <String>{
+  'mathematics',
+  'english language',
+  'english literature',
+  'biology',
+  'chemistry',
+  'physics',
+};
+
+int? _daysUntil(int? timestamp) {
+  if (timestamp == null || timestamp <= 0) return null;
+  final now = DateTime.now().millisecondsSinceEpoch;
+  final diff = timestamp - now;
+  return (diff / _dayMs).ceil();
+}
+
+const Map<String, String> _examReasonLabels = <String, String>{
+  'weak_topic': 'Weak topic',
+  'recency_gap': 'Not practiced recently',
+  'exam_soon': 'Exam date approaching',
+  'target_gap': 'Target grade gap',
+  'baseline_needed': 'Build starting profile',
+  'maintain_momentum': 'Keep momentum',
+  'build_evidence': 'Needs more evidence',
+  'incomplete_reasoning': 'Incomplete reasoning',
+  'missing_keyword': 'Missing key term',
+  'calculation_error': 'Calculation error',
+  'misread_prompt': 'Misread question prompt',
+  'no_working': 'No working shown',
+};
+
+String _formatReasonCodeLabel(String code) {
+  final formatted = code.replaceAll(RegExp(r'[_-]+'), ' ').trim();
+  if (formatted.isEmpty) return code;
+  return formatted
+      .split(' ')
+      .map((part) =>
+          part.isEmpty ? part : '${part[0].toUpperCase()}${part.substring(1)}')
+      .join(' ');
+}
+
+List<String> _reasonLabelsFromCodes(List<String> codes) {
+  return codes
+      .map((code) => _examReasonLabels[code] ?? _formatReasonCodeLabel(code))
+      .where((label) => label.trim().isNotEmpty)
+      .toSet()
+      .toList(growable: false);
+}
+
+Map<String, dynamic> _buildExamSessionPreset({
+  required String sessionType,
+  required double recentMarks,
+  int questionCount = 10,
+  bool includeHints = false,
+}) {
+  final safeMarks = recentMarks.clamp(0.0, 1.0);
+  final isBaseline = sessionType == 'baseline';
+  final profile = isBaseline ? 'exam_baseline' : 'exam_standard';
+  final difficulty = isBaseline
+      ? 'Medium'
+      : safeMarks < 0.45
+          ? 'Easy'
+          : safeMarks < 0.7
+              ? 'Medium'
+              : 'Hard';
+  final effectiveCount = isBaseline ? 24 : questionCount.clamp(6, 20);
+  final timePerQuestion = isBaseline ? 75 : 70;
+  return {
+    'questionCount': effectiveCount,
+    'timePerQuestion': timePerQuestion,
+    'totalTimeLimit': effectiveCount * timePerQuestion,
+    'timedMode': true,
+    'difficulty': difficulty,
+    'includeCodeChallenges': false,
+    'includeMcqs': true,
+    'includeInput': true,
+    'includeFillBlank': false,
+    'includeHints': includeHints || isBaseline,
+    'includeImageQuestions': false,
+    'examModeProfile': profile,
+    'autoStart': true,
+  };
+}
+
+final gcseExamHomeProvider = FutureProvider<Map<String, dynamic>>((ref) async {
+  final user = ref.watch(userProvider).value;
+  if (user == null) {
+    return {
+      'targets': const <Map<String, dynamic>>[],
+      'reviseToday': const <Map<String, dynamic>>[],
+      'needsWork': const <Map<String, dynamic>>[],
+      'subjectProgress': const <Map<String, dynamic>>[],
+      'revisionIntelligence': {
+        'subjectCount': 0,
+        'mocksInDays': null,
+        'gcsesInDays': null,
+        'atRiskCount': 0,
+        'onTrackCount': 0,
+        'closeCount': 0,
+        'missingDateCount': 0,
+        'timetableMode': 'none',
+        'dailyStudyMinutes': 45,
+        'configuredDailyMinutes': 45,
+        'adaptiveDailyMinutes': 45,
+        'actualDailyMinutes14d': 0,
+        'actualActiveDayMinutes14d': 0,
+        'activeDays14d': 0,
+        'actualDailySessions14d': 0,
+        'weeklyStudyMinutes': 0,
+        'weeklySessionsTarget': 0,
+      },
+      'todayMission': {
+        'headline': 'Set up GCSE subjects to get your first plan.',
+        'primaryCompletedToday': false,
+        'dailyMinutesBudget': 45,
+        'configuredDailyMinutes': 45,
+        'actualDailyMinutes14d': 0,
+        'actualActiveDayMinutes14d': 0,
+        'budgetMode': 'configured',
+        'plannedMinutes': 0,
+        'plannedSessions': 0,
+        'sessions': const <Map<String, dynamic>>[],
+      },
+    };
+  }
+
+  final examRepo = ref.read(examRepositoryProvider);
+  try {
+    final payload = await examRepo.getGcseExamHome();
+    if (payload.isNotEmpty) {
+      return payload;
+    }
+  } catch (_) {
+    // Fallback to local assembly for compatibility while backend rolls out.
+  }
+
+  final allTargets = await examRepo.listMyTargets();
+  final gcseTargets = allTargets.where((target) {
+    if ((target['examFamily']?.toString().toLowerCase() ?? '') != 'gcse') {
+      return false;
+    }
+    final subject = target['subject']?.toString().toLowerCase().trim() ?? '';
+    return _gcseCoreSubjects.contains(subject);
+  }).toList()
+    ..sort((a, b) {
+      final sa = a['subject']?.toString() ?? '';
+      final sb = b['subject']?.toString() ?? '';
+      return sa.compareTo(sb);
+    });
+
+  final reviseToday = <Map<String, dynamic>>[];
+  final needsWork = <Map<String, dynamic>>[];
+  final subjectProgress = <Map<String, dynamic>>[];
+  final now = DateTime.now().millisecondsSinceEpoch;
+  int? nearestMockInDays;
+  int? nearestGcseInDays;
+  int atRiskCount = 0;
+  int closeCount = 0;
+  int onTrackCount = 0;
+  int missingDateCount = 0;
+  String timetableMode = 'none';
+  int weeklyStudyMinutes = 0;
+  int weeklySessionsTarget = 0;
+
+  for (final target in gcseTargets) {
+    final targetId = target['_id']?.toString();
+    if (targetId == null || targetId.trim().isEmpty) continue;
+
+    final dashboard = await examRepo.getMyExamDashboard(targetId: targetId);
+    final totalAttempts = convexInt(dashboard['totalAttempts']);
+    final avgMarksPct = (dashboard['avgMarksPct'] as num?)?.toDouble() ?? 0.0;
+    final lastAttemptedAt = convexInt(dashboard['lastAttemptedAt']);
+    final gradeStatus = dashboard['gradeStatus']?.toString() ?? 'no_target';
+    final gradeGapToTarget = convexInt(dashboard['gradeGapToTarget']);
+    final daysSinceLast = lastAttemptedAt > 0
+        ? ((now - lastAttemptedAt) ~/ _dayMs).clamp(0, 365)
+        : 365;
+
+    final mockDateAt = convexInt(target['mockDateAt']);
+    final examDateAt = convexInt(target['examDateAt']);
+    final mockInDays = _daysUntil(mockDateAt > 0 ? mockDateAt : null);
+    final examInDays = _daysUntil(examDateAt > 0 ? examDateAt : null);
+    final relevantDeadlines = [mockInDays, examInDays]
+        .whereType<int>()
+        .where((days) => days >= 0)
+        .toList(growable: false);
+    final nearestDeadlineInDays =
+        relevantDeadlines.isEmpty ? null : relevantDeadlines.reduce(min);
+    final examUrgencyScore = nearestDeadlineInDays == null
+        ? 0.0
+        : (1 - (nearestDeadlineInDays / 90)).clamp(0.0, 1.0);
+    if (mockInDays == null && examInDays == null) {
+      missingDateCount += 1;
+    }
+    if (mockInDays != null) {
+      nearestMockInDays = nearestMockInDays == null
+          ? mockInDays
+          : (mockInDays < nearestMockInDays ? mockInDays : nearestMockInDays);
+    }
+    if (examInDays != null) {
+      nearestGcseInDays = nearestGcseInDays == null
+          ? examInDays
+          : (examInDays < nearestGcseInDays ? examInDays : nearestGcseInDays);
+    }
+
+    if (gradeStatus == 'at_risk') {
+      atRiskCount += 1;
+    } else if (gradeStatus == 'close') {
+      closeCount += 1;
+    } else if (gradeStatus == 'on_track') {
+      onTrackCount += 1;
+    }
+
+    final targetTimetableMode = target['timetableMode']?.toString().trim();
+    if (targetTimetableMode != null && targetTimetableMode.isNotEmpty) {
+      timetableMode = targetTimetableMode;
+    }
+    final targetWeeklyMinutes = convexInt(target['weeklyStudyMinutes']);
+    if (targetWeeklyMinutes > 0) {
+      weeklyStudyMinutes = targetWeeklyMinutes;
+    }
+    final targetWeeklySessions = convexInt(target['weeklySessionsTarget']);
+    if (targetWeeklySessions > 0) {
+      weeklySessionsTarget = targetWeeklySessions;
+    }
+
+    subjectProgress.add({
+      'targetId': targetId,
+      'subject': target['subject']?.toString() ?? 'Subject',
+      'board': target['board']?.toString() ?? '',
+      'totalAttempts': totalAttempts,
+      'avgMarksPct': avgMarksPct,
+      'lastAttemptedAt': lastAttemptedAt,
+      'daysSinceLast': daysSinceLast,
+      'gradeStatus': gradeStatus,
+      'gradeGapToTarget': gradeGapToTarget,
+      'mockDateAt': mockDateAt > 0 ? mockDateAt : null,
+      'examDateAt': examDateAt > 0 ? examDateAt : null,
+      'mockInDays': mockInDays,
+      'examInDays': examInDays,
+    });
+
+    final weak = isConvexList(dashboard['weakTopics'])
+        ? toMapList(dashboard['weakTopics'])
+        : const <Map<String, dynamic>>[];
+
+    if (weak.isEmpty) {
+      if (totalAttempts == 0) {
+        final reasonCodes = <String>['baseline_needed'];
+        final reasonLabels = _reasonLabelsFromCodes(reasonCodes);
+        reviseToday.add({
+          'targetId': targetId,
+          'subject': target['subject']?.toString() ?? 'Subject',
+          'topic': 'Baseline diagnostic',
+          'actionLabel': 'Build your baseline profile',
+          'avgMarksPct': 0.0,
+          'attempts': 0,
+          'daysSinceLast': daysSinceLast,
+          'dueScore': 0.58 + (examUrgencyScore * 0.18),
+          'estimatedMinutes': 30,
+          'effortLabel': '~24-34 min',
+          'sessionType': 'baseline',
+          'reasonCodes': reasonCodes,
+          'reasonLabels': reasonLabels,
+          'whyNow': reasonLabels.first,
+          'expectedGain':
+              'Pinpoint weak areas and calibrate your next sessions.',
+          'learningMethods': const [
+            'Retrieval practice',
+            'Metacognitive calibration',
+          ],
+          'completedToday': false,
+          'confidence': 0.95,
+          'quizPreset': _buildExamSessionPreset(
+            sessionType: 'baseline',
+            recentMarks: 0,
+            questionCount: 24,
+            includeHints: true,
+          ),
+        });
+      } else if (daysSinceLast >= 5) {
+        final reasonCodes = <String>[
+          if (daysSinceLast >= 5) 'recency_gap',
+          'maintain_momentum',
+          if (gradeGapToTarget > 0) 'target_gap',
+          if (examUrgencyScore > 0.4) 'exam_soon',
+        ];
+        final reasonLabels = _reasonLabelsFromCodes(reasonCodes);
+        reviseToday.add({
+          'targetId': targetId,
+          'subject': target['subject']?.toString() ?? 'Subject',
+          'topic': 'Timed mixed practice',
+          'actionLabel': 'Run mixed exam retrieval',
+          'avgMarksPct': avgMarksPct,
+          'attempts': totalAttempts,
+          'daysSinceLast': daysSinceLast,
+          'dueScore': 0.5 +
+              ((daysSinceLast / 10).clamp(0, 1) * 0.25) +
+              (examUrgencyScore * 0.15) +
+              ((gradeGapToTarget / 3).clamp(0, 1) * 0.1),
+          'estimatedMinutes': 25,
+          'effortLabel': '~21-29 min',
+          'sessionType': 'mixed_practice',
+          'reasonCodes': reasonCodes,
+          'reasonLabels': reasonLabels,
+          'whyNow': reasonLabels.first,
+          'expectedGain':
+              'Stabilize exam performance across mixed question types.',
+          'learningMethods': const ['Interleaving', 'Desirable difficulty'],
+          'completedToday': false,
+          'confidence': 0.72,
+          'quizPreset': _buildExamSessionPreset(
+            sessionType: 'mixed_practice',
+            recentMarks: avgMarksPct,
+            questionCount: 12,
+            includeHints: avgMarksPct < 0.55,
+          ),
+        });
+      }
+    }
+
+    if (totalAttempts > 0 && avgMarksPct < 0.65) {
+      needsWork.add({
+        'targetId': targetId,
+        'subject': target['subject']?.toString() ?? 'Subject',
+        'topic': 'Mixed paper questions',
+        'avgMarksPct': avgMarksPct,
+        'attempts': totalAttempts,
+        'daysSinceLast': daysSinceLast,
+        'dueScore': (1 - avgMarksPct).clamp(0.0, 1.0),
+      });
+    }
+
+    for (final row in weak.take(5)) {
+      final topic = row['topic']?.toString().trim() ?? '';
+      if (topic.isEmpty) continue;
+      final topicMarks =
+          (row['avgMarksPct'] as num?)?.toDouble() ?? avgMarksPct;
+      final topicAttempts = convexInt(row['attempts']);
+      final weaknessScore = (1 - topicMarks).clamp(0.0, 1.0);
+      final recencyScore = (daysSinceLast / 10).clamp(0, 1).toDouble();
+      final targetGapScore = (gradeGapToTarget / 3).clamp(0, 1).toDouble();
+      final dueScore = (weaknessScore * 0.56) +
+          (recencyScore * 0.18) +
+          (examUrgencyScore * 0.16) +
+          (targetGapScore * 0.1) +
+          (topicAttempts <= 1 ? 0.04 : 0);
+      final reasonCodes = <String>[
+        if (weaknessScore >= 0.35) 'weak_topic',
+        if (recencyScore >= 0.45) 'recency_gap',
+        if (examUrgencyScore >= 0.4) 'exam_soon',
+        if (targetGapScore > 0) 'target_gap',
+        if (topicAttempts <= 1) 'build_evidence',
+      ];
+      if (reasonCodes.isEmpty) {
+        reasonCodes.add('maintain_momentum');
+      }
+      final estimatedMinutes =
+          topicAttempts <= 2 ? 24 : (weaknessScore >= 0.5 ? 28 : 22);
+      final reasonLabels = _reasonLabelsFromCodes(reasonCodes);
+
+      final item = {
+        'targetId': targetId,
+        'subject': target['subject']?.toString() ?? 'Subject',
+        'topic': topic,
+        'actionLabel': 'Repair weakest performance in $topic',
+        'avgMarksPct': topicMarks,
+        'attempts': topicAttempts,
+        'daysSinceLast': daysSinceLast,
+        'dueScore': dueScore,
+        'estimatedMinutes': estimatedMinutes,
+        'effortLabel': estimatedMinutes >= 27 ? '~24-32 min' : '~19-26 min',
+        'sessionType': 'weak_focus',
+        'reasonCodes': reasonCodes,
+        'reasonLabels': reasonLabels,
+        'whyNow': reasonLabels.first,
+        'expectedGain':
+            'Improve marks in $topic with targeted retrieval and correction.',
+        'learningMethods': const [
+          'Retrieval practice',
+          'Error-focused feedback'
+        ],
+        'completedToday': daysSinceLast == 0,
+        'confidence': (0.6 + (min(topicAttempts, 4) * 0.08)).clamp(0.6, 0.92),
+        'quizPreset': _buildExamSessionPreset(
+          sessionType: 'weak_focus',
+          recentMarks: topicMarks,
+          questionCount: topicMarks < 0.45 ? 14 : 12,
+          includeHints: topicMarks < 0.6,
+        ),
+      };
+      reviseToday.add(item);
+      needsWork.add(item);
+    }
+  }
+
+  final dedupedReviseToday = <Map<String, dynamic>>[];
+  final seenReviseKeys = <String>{};
+  for (final item in reviseToday) {
+    final targetId = item['targetId']?.toString() ?? '';
+    final topic = item['topic']?.toString().toLowerCase().trim() ?? '';
+    final key = '$targetId::$topic';
+    if (seenReviseKeys.contains(key)) continue;
+    seenReviseKeys.add(key);
+    dedupedReviseToday.add(item);
+  }
+
+  final dedupedNeedsWork = <Map<String, dynamic>>[];
+  final seenNeedsKeys = <String>{};
+  for (final item in needsWork) {
+    final targetId = item['targetId']?.toString() ?? '';
+    final topic = item['topic']?.toString().toLowerCase().trim() ?? '';
+    final key = '$targetId::$topic';
+    if (seenNeedsKeys.contains(key)) continue;
+    seenNeedsKeys.add(key);
+    dedupedNeedsWork.add(item);
+  }
+
+  dedupedReviseToday.sort((a, b) {
+    final scoreCmp = ((b['dueScore'] as num?)?.toDouble() ?? 0)
+        .compareTo((a['dueScore'] as num?)?.toDouble() ?? 0);
+    if (scoreCmp != 0) return scoreCmp;
+    return ((a['avgMarksPct'] as num?)?.toDouble() ?? 1)
+        .compareTo((b['avgMarksPct'] as num?)?.toDouble() ?? 1);
+  });
+
+  dedupedNeedsWork.sort((a, b) {
+    final marksCmp = ((a['avgMarksPct'] as num?)?.toDouble() ?? 1)
+        .compareTo((b['avgMarksPct'] as num?)?.toDouble() ?? 1);
+    if (marksCmp != 0) return marksCmp;
+    return (convexInt(b['attempts']) - convexInt(a['attempts']));
+  });
+
+  final configuredDailyMinutes =
+      weeklyStudyMinutes > 0 ? (weeklyStudyMinutes / 7).round() : 45;
+  final adaptiveDailyMinutes = configuredDailyMinutes;
+  final actualDailyMinutes14d = 0.0;
+  final actualActiveDayMinutes14d = 0.0;
+  final activeDays14d = 0;
+  final actualDailySessions14d = 0.0;
+  final dailyStudyMinutes = adaptiveDailyMinutes;
+  final dailySessionBudget =
+      weeklySessionsTarget > 0 ? max(1, (weeklySessionsTarget / 7).ceil()) : 2;
+  final missionSessions = <Map<String, dynamic>>[];
+  var plannedMinutes = 0;
+  for (final item in dedupedReviseToday) {
+    final estimatedMinutes = max(10, convexInt(item['estimatedMinutes']));
+    final nextSessionCount = missionSessions.length + 1;
+    final nextMinutes = plannedMinutes + estimatedMinutes;
+    final withinSessionBudget = nextSessionCount <= dailySessionBudget;
+    final withinTimeBudget = nextMinutes <= max(dailyStudyMinutes, 25);
+    if (withinSessionBudget && withinTimeBudget) {
+      missionSessions.add(item);
+      plannedMinutes = nextMinutes;
+      continue;
+    }
+    if (missionSessions.isEmpty) {
+      missionSessions.add(item);
+      plannedMinutes = estimatedMinutes;
+    }
+    if (missionSessions.length >= dailySessionBudget) {
+      break;
+    }
+  }
+
+  final missionHeadline = missionSessions.isEmpty
+      ? 'Complete one session to unlock a personalized mission.'
+      : missionSessions.length == 1
+          ? 'One high-impact session is ready.'
+          : 'Start the primary mission, then run the backup if you still have energy.';
+  final primaryCompletedToday = missionSessions.isNotEmpty &&
+      missionSessions.first['completedToday'] == true;
+
+  return {
+    'targets': gcseTargets,
+    'reviseToday': dedupedReviseToday.take(8).toList(),
+    'needsWork': dedupedNeedsWork.take(8).toList(),
+    'subjectProgress': subjectProgress,
+    'todayMission': {
+      'headline': missionHeadline,
+      'primaryCompletedToday': primaryCompletedToday,
+      'dailyMinutesBudget': dailyStudyMinutes,
+      'configuredDailyMinutes': configuredDailyMinutes,
+      'actualDailyMinutes14d': actualDailyMinutes14d,
+      'actualActiveDayMinutes14d': actualActiveDayMinutes14d,
+      'budgetMode': 'configured',
+      'plannedMinutes': plannedMinutes,
+      'plannedSessions': missionSessions.length,
+      'sessions': missionSessions,
+    },
+    'revisionIntelligence': {
+      'subjectCount': gcseTargets.length,
+      'mocksInDays': nearestMockInDays,
+      'gcsesInDays': nearestGcseInDays,
+      'atRiskCount': atRiskCount,
+      'closeCount': closeCount,
+      'onTrackCount': onTrackCount,
+      'missingDateCount': missingDateCount,
+      'timetableMode': timetableMode,
+      'dailyStudyMinutes': dailyStudyMinutes,
+      'configuredDailyMinutes': configuredDailyMinutes,
+      'adaptiveDailyMinutes': adaptiveDailyMinutes,
+      'actualDailyMinutes14d': actualDailyMinutes14d,
+      'actualActiveDayMinutes14d': actualActiveDayMinutes14d,
+      'activeDays14d': activeDays14d,
+      'actualDailySessions14d': actualDailySessions14d,
+      'weeklyStudyMinutes': weeklyStudyMinutes,
+      'weeklySessionsTarget': weeklySessionsTarget,
+    },
+  };
 });
 
 final recommendationsCacheProvider =

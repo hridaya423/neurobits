@@ -11,6 +11,9 @@ class ProgressRepository {
     required int attempts,
     required int timeTakenSeconds,
     double? accuracy,
+    String? examTargetId,
+    double? marksAwarded,
+    double? marksAvailable,
     List<Map<String, dynamic>>? answers,
   }) async {
     final args = <String, dynamic>{
@@ -21,6 +24,11 @@ class ProgressRepository {
       'timezoneOffsetMinutes': -DateTime.now().timeZoneOffset.inMinutes,
     };
     if (accuracy != null) args['accuracy'] = accuracy;
+    if (examTargetId != null && examTargetId.trim().isNotEmpty) {
+      args['examTargetId'] = examTargetId.trim();
+    }
+    if (marksAwarded != null) args['marksAwarded'] = marksAwarded;
+    if (marksAvailable != null) args['marksAvailable'] = marksAvailable;
     if (answers != null) args['answers'] = answers;
 
     final result = await _client.mutation(

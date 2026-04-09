@@ -9,9 +9,13 @@ import 'package:neurobits/services/convex_client_service.dart';
 class TopicCustomizationScreen extends ConsumerStatefulWidget {
   final String topic;
   final String? userPathChallengeId;
+  final String? examTargetId;
+  final Map<String, dynamic>? quizPreset;
   const TopicCustomizationScreen({
     required this.topic,
     this.userPathChallengeId,
+    this.examTargetId,
+    this.quizPreset,
     super.key,
   });
   @override
@@ -41,6 +45,123 @@ class _TopicCustomizationScreenState
   bool _initialPrefsLoaded = false;
   bool _quickStartEnabled = true;
   bool _autoStartTriggered = false;
+
+  bool get _hasAutoStartPreset => widget.quizPreset?['autoStart'] == true;
+
+  bool get _isExamModeSession =>
+      widget.examTargetId != null && widget.examTargetId!.trim().isNotEmpty;
+
+  bool get _isBaselineDiagnosticTopic {
+    final normalized = widget.topic.toLowerCase().trim();
+    return normalized == 'baseline diagnostic' ||
+        normalized.contains('baseline diagnostic');
+  }
+
+  String get _examModeProfile {
+    final fromPreset =
+        widget.quizPreset?['examModeProfile']?.toString().trim().toLowerCase();
+    if (fromPreset != null && fromPreset.isNotEmpty) {
+      return fromPreset;
+    }
+    if (_isExamModeSession && _isBaselineDiagnosticTopic) {
+      return 'exam_baseline';
+    }
+    if (_isExamModeSession) {
+      return 'exam_standard';
+    }
+    return 'general';
+  }
+
+  int _clampInt(dynamic value, int fallback, int min, int max) {
+    if (value is! num) return fallback;
+    return value.toInt().clamp(min, max);
+  }
+
+  void _applyQuizPresetIfAny() {
+    final preset = widget.quizPreset;
+    if (preset == null) {
+      _enforceExamModeRules();
+      return;
+    }
+
+    _selectedQuestionCount =
+        _clampInt(preset['questionCount'], _selectedQuestionCount, 3, 50);
+    _selectedTimePerQuestion = _clampInt(
+      preset['timePerQuestion'],
+      _selectedTimePerQuestion,
+      10,
+      240,
+    );
+
+    if (preset['timedMode'] is bool) {
+      _timedMode = preset['timedMode'] as bool;
+    }
+
+    final difficulty = preset['difficulty']?.toString();
+    if (difficulty == 'Easy' ||
+        difficulty == 'Medium' ||
+        difficulty == 'Hard') {
+      _selectedDifficulty = difficulty!;
+    }
+
+    if (preset['includeCodeChallenges'] is bool) {
+      _includeCodeChallenges = preset['includeCodeChallenges'] as bool;
+    }
+    if (preset['includeMcqs'] is bool) {
+      _includeMcqs = preset['includeMcqs'] as bool;
+    }
+    if (preset['includeInput'] is bool) {
+      _includeInput = preset['includeInput'] as bool;
+    }
+    if (preset['includeFillBlank'] is bool) {
+      _includeFillBlank = preset['includeFillBlank'] as bool;
+    }
+    if (preset['includeHints'] is bool) {
+      _hintsEnabled = preset['includeHints'] as bool;
+    }
+    if (preset['includeImageQuestions'] is bool) {
+      _imageQuestionsEnabled = preset['includeImageQuestions'] as bool;
+    }
+
+    final computedTotalTime = _selectedQuestionCount * _selectedTimePerQuestion;
+    final presetTotal = preset['totalTimeLimit'];
+    if (presetTotal == null) {
+      _selectedTotalTimeLimit = null;
+    } else {
+      _selectedTotalTimeLimit =
+          _clampInt(presetTotal, computedTotalTime, 30, 7200);
+    }
+
+    if (_hasAutoStartPreset) {
+      _quickStartEnabled = true;
+    }
+
+    _enforceExamModeRules();
+  }
+
+  void _enforceExamModeRules() {
+    if (!_isExamModeSession) {
+      return;
+    }
+
+    _includeCodeChallenges = false;
+    _includeFillBlank = false;
+    _includeMcqs = true;
+    _includeInput = true;
+
+    if (_isBaselineDiagnosticTopic) {
+      _selectedQuestionCount = 24;
+      _timedMode = true;
+      _selectedDifficulty = 'Medium';
+      if (_selectedTimePerQuestion < 30 || _selectedTimePerQuestion > 180) {
+        _selectedTimePerQuestion = 75;
+      }
+      _selectedTotalTimeLimit =
+          _selectedQuestionCount * _selectedTimePerQuestion;
+      _hintsEnabled = true;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -87,6 +208,7 @@ class _TopicCustomizationScreenState
           if (!_isCodingRelated!) {
             _includeCodeChallenges = false;
           }
+          _enforceExamModeRules();
         });
       }
     } catch (e) {
@@ -94,6 +216,7 @@ class _TopicCustomizationScreenState
         setState(() {
           _isCodingRelated = false;
           _includeCodeChallenges = false;
+          _enforceExamModeRules();
         });
       }
     }
@@ -136,6 +259,9 @@ class _TopicCustomizationScreenState
         ref: ref,
         totalTimeLimit: _selectedTotalTimeLimit,
         userPathChallengeId: widget.userPathChallengeId,
+        examTargetOverrideId: widget.examTargetId,
+        examModeProfile: _examModeProfile,
+        examFocusContext: widget.quizPreset?['examFocusContext']?.toString(),
       );
       final String routeKey = quizData['routeKey'];
       final Map<String, dynamic> extraData = quizData['extraData'];
@@ -180,14 +306,19 @@ class _TopicCustomizationScreenState
   @override
   Widget build(BuildContext context) {
     final preferencesAsync = ref.watch(userPreferencesProvider);
-    final validTypeSelected = _includeCodeChallenges ||
-        _includeMcqs ||
-        _includeInput ||
-        _includeFillBlank;
+    final validTypeSelected = _isExamModeSession
+        ? (_includeMcqs || _includeInput)
+        : (_includeCodeChallenges ||
+            _includeMcqs ||
+            _includeInput ||
+            _includeFillBlank);
     final showLoading =
         _isLoading || (_quickStartEnabled && _autoStartTriggered);
     final showQuickStartTitle = _quickStartEnabled && _initialPrefsLoaded;
-    if (_quickStartEnabled && _initialPrefsLoaded && !_autoStartTriggered) {
+    final shouldAutoStart = (_quickStartEnabled || _hasAutoStartPreset) &&
+        _initialPrefsLoaded &&
+        !_autoStartTriggered;
+    if (shouldAutoStart) {
       _autoStartTriggered = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && !_isLoading) {
@@ -276,6 +407,7 @@ class _TopicCustomizationScreenState
                                     _includeCodeChallenges =
                                         (_isCodingRelated ?? false) &&
                                             allowedTypes.contains('code');
+                                    _applyQuizPresetIfAny();
                                     _initialPrefsLoaded = true;
                                   });
                                 }
@@ -291,10 +423,117 @@ class _TopicCustomizationScreenState
                                     child: CircularProgressIndicator())),
                           ],
                           if (preferencesAsync is AsyncError) ...[
+                            if (!_initialPrefsLoaded)
+                              Builder(builder: (context) {
+                                WidgetsBinding.instance
+                                    .addPostFrameCallback((_) {
+                                  if (mounted) {
+                                    setState(() {
+                                      _applyQuizPresetIfAny();
+                                      _initialPrefsLoaded = true;
+                                    });
+                                  }
+                                });
+                                return const SizedBox.shrink();
+                              }),
                             Center(
                                 child: Text(
                                     "Error loading defaults: ${preferencesAsync.error}")),
                           ],
+                          if (widget.quizPreset != null) ...[
+                            Container(
+                              width: double.infinity,
+                              margin: const EdgeInsets.only(bottom: 16),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .tertiary
+                                    .withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .tertiary
+                                      .withValues(alpha: 0.35),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.timer_outlined,
+                                    color:
+                                        Theme.of(context).colorScheme.tertiary,
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      'Paper simulation preset applied',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                          if (widget.examTargetId != null &&
+                              widget.examTargetId!.trim().isNotEmpty)
+                            Container(
+                              width: double.infinity,
+                              margin: const EdgeInsets.only(bottom: 16),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .primary
+                                    .withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .primary
+                                      .withValues(alpha: 0.35),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.menu_book_rounded,
+                                    color:
+                                        Theme.of(context).colorScheme.primary,
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      _isBaselineDiagnosticTopic
+                                          ? 'Exam mode baseline diagnostic'
+                                          : 'Exam mode session',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          if (_isExamModeSession && _isBaselineDiagnosticTopic)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: Text(
+                                'Baseline diagnostics use 24 timed exam-style questions for a reliable starting profile.',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ),
                           Text('Number of Questions: $_selectedQuestionCount'),
                           Slider(
                             value: _selectedQuestionCount.toDouble(),
@@ -302,12 +541,20 @@ class _TopicCustomizationScreenState
                             max: 50,
                             divisions: 47,
                             label: _selectedQuestionCount.toString(),
-                            onChanged: (value) {
-                              setState(() {
-                                _selectedQuestionCount = value.round();
-                              });
-                            },
+                            onChanged: _isExamModeSession &&
+                                    _isBaselineDiagnosticTopic
+                                ? null
+                                : (value) {
+                                    setState(() {
+                                      _selectedQuestionCount = value.round();
+                                    });
+                                  },
                           ),
+                          if (_isExamModeSession && _isBaselineDiagnosticTopic)
+                            Text(
+                              'Locked for baseline consistency.',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
                           const SizedBox(height: 16),
                           Text(
                               'Time per Question (seconds): $_selectedTimePerQuestion'),
@@ -317,11 +564,14 @@ class _TopicCustomizationScreenState
                             max: 240,
                             divisions: 23,
                             label: _selectedTimePerQuestion.toString(),
-                            onChanged: (value) {
-                              setState(() {
-                                _selectedTimePerQuestion = value.round();
-                              });
-                            },
+                            onChanged: _isExamModeSession &&
+                                    _isBaselineDiagnosticTopic
+                                ? null
+                                : (value) {
+                                    setState(() {
+                                      _selectedTimePerQuestion = value.round();
+                                    });
+                                  },
                           ),
                           const SizedBox(height: 16),
                           Text('Difficulty:'),
@@ -330,109 +580,142 @@ class _TopicCustomizationScreenState
                               ChoiceChip(
                                 label: const Text('Easy'),
                                 selected: _selectedDifficulty == 'Easy',
-                                onSelected: (selected) {
-                                  if (selected) {
-                                    setState(
-                                        () => _selectedDifficulty = 'Easy');
-                                  }
-                                },
+                                onSelected: (_isExamModeSession &&
+                                        _isBaselineDiagnosticTopic)
+                                    ? null
+                                    : (selected) {
+                                        if (selected) {
+                                          setState(() =>
+                                              _selectedDifficulty = 'Easy');
+                                        }
+                                      },
                               ),
                               const SizedBox(width: 8),
                               ChoiceChip(
                                 label: const Text('Medium'),
                                 selected: _selectedDifficulty == 'Medium',
-                                onSelected: (selected) {
-                                  if (selected) {
-                                    setState(
-                                        () => _selectedDifficulty = 'Medium');
-                                  }
-                                },
+                                onSelected: (_isExamModeSession &&
+                                        _isBaselineDiagnosticTopic)
+                                    ? null
+                                    : (selected) {
+                                        if (selected) {
+                                          setState(() =>
+                                              _selectedDifficulty = 'Medium');
+                                        }
+                                      },
                               ),
                               const SizedBox(width: 8),
                               ChoiceChip(
                                 label: const Text('Hard'),
                                 selected: _selectedDifficulty == 'Hard',
-                                onSelected: (selected) {
-                                  if (selected) {
-                                    setState(
-                                        () => _selectedDifficulty = 'Hard');
-                                  }
-                                },
+                                onSelected: (_isExamModeSession &&
+                                        _isBaselineDiagnosticTopic)
+                                    ? null
+                                    : (selected) {
+                                        if (selected) {
+                                          setState(() =>
+                                              _selectedDifficulty = 'Hard');
+                                        }
+                                      },
                               ),
                             ],
                           ),
                           const SizedBox(height: 16),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('Question Types'),
-                              const SizedBox(height: 12),
-                              Wrap(
-                                spacing: 16,
-                                runSpacing: 0,
-                                children: [
-                                  if (_isCodingRelated == true)
+                          if (_isExamModeSession)
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Question Types'),
+                                const SizedBox(height: 10),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: const [
+                                    Chip(label: Text('Multiple Choice (MCQ)')),
+                                    Chip(
+                                        label:
+                                            Text('Explain / Short Response')),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'Exam mode uses GCSE-style formats only (MCQ + explain responses).',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ],
+                            )
+                          else
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Question Types'),
+                                const SizedBox(height: 12),
+                                Wrap(
+                                  spacing: 16,
+                                  runSpacing: 0,
+                                  children: [
+                                    if (_isCodingRelated == true)
+                                      SizedBox(
+                                        width: 160,
+                                        child: CheckboxListTile(
+                                          contentPadding: EdgeInsets.zero,
+                                          dense: true,
+                                          title: const Text('Code'),
+                                          value: _includeCodeChallenges,
+                                          onChanged: (value) {
+                                            setState(() {
+                                              _includeCodeChallenges =
+                                                  value ?? false;
+                                            });
+                                          },
+                                        ),
+                                      ),
                                     SizedBox(
                                       width: 160,
                                       child: CheckboxListTile(
                                         contentPadding: EdgeInsets.zero,
                                         dense: true,
-                                        title: const Text('Code'),
-                                        value: _includeCodeChallenges,
+                                        title: const Text('Multiple Choice'),
+                                        value: _includeMcqs,
                                         onChanged: (value) {
                                           setState(() {
-                                            _includeCodeChallenges =
-                                                value ?? false;
+                                            _includeMcqs = value ?? false;
                                           });
                                         },
                                       ),
                                     ),
-                                  SizedBox(
-                                    width: 160,
-                                    child: CheckboxListTile(
-                                      contentPadding: EdgeInsets.zero,
-                                      dense: true,
-                                      title: const Text('Multiple Choice'),
-                                      value: _includeMcqs,
-                                      onChanged: (value) {
-                                        setState(() {
-                                          _includeMcqs = value ?? false;
-                                        });
-                                      },
+                                    SizedBox(
+                                      width: 160,
+                                      child: CheckboxListTile(
+                                        contentPadding: EdgeInsets.zero,
+                                        dense: true,
+                                        title: const Text('Input'),
+                                        value: _includeInput,
+                                        onChanged: (value) {
+                                          setState(() {
+                                            _includeInput = value ?? false;
+                                          });
+                                        },
+                                      ),
                                     ),
-                                  ),
-                                  SizedBox(
-                                    width: 160,
-                                    child: CheckboxListTile(
-                                      contentPadding: EdgeInsets.zero,
-                                      dense: true,
-                                      title: const Text('Input'),
-                                      value: _includeInput,
-                                      onChanged: (value) {
-                                        setState(() {
-                                          _includeInput = value ?? false;
-                                        });
-                                      },
+                                    SizedBox(
+                                      width: 160,
+                                      child: CheckboxListTile(
+                                        contentPadding: EdgeInsets.zero,
+                                        dense: true,
+                                        title: const Text('Fill in Blank'),
+                                        value: _includeFillBlank,
+                                        onChanged: (value) {
+                                          setState(() {
+                                            _includeFillBlank = value ?? false;
+                                          });
+                                        },
+                                      ),
                                     ),
-                                  ),
-                                  SizedBox(
-                                    width: 160,
-                                    child: CheckboxListTile(
-                                      contentPadding: EdgeInsets.zero,
-                                      dense: true,
-                                      title: const Text('Fill in Blank'),
-                                      value: _includeFillBlank,
-                                      onChanged: (value) {
-                                        setState(() {
-                                          _includeFillBlank = value ?? false;
-                                        });
-                                      },
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
+                                  ],
+                                ),
+                              ],
+                            ),
                           if (!validTypeSelected)
                             Padding(
                               padding:
@@ -448,6 +731,10 @@ class _TopicCustomizationScreenState
                               Checkbox(
                                 value: _selectedTotalTimeLimit != null,
                                 onChanged: (checked) {
+                                  if (_isExamModeSession &&
+                                      _isBaselineDiagnosticTopic) {
+                                    return;
+                                  }
                                   setState(() {
                                     _selectedTotalTimeLimit = checked == true
                                         ? _selectedTimePerQuestion *
@@ -488,11 +775,15 @@ class _TopicCustomizationScreenState
                                     label: _selectedTotalTimeLimit != null
                                         ? '${(_selectedTotalTimeLimit! / 60).floor()}m ${(_selectedTotalTimeLimit! % 60)}s'
                                         : 'auto',
-                                    onChanged: (value) {
-                                      setState(() {
-                                        _selectedTotalTimeLimit = value.round();
-                                      });
-                                    },
+                                    onChanged: _isExamModeSession &&
+                                            _isBaselineDiagnosticTopic
+                                        ? null
+                                        : (value) {
+                                            setState(() {
+                                              _selectedTotalTimeLimit =
+                                                  value.round();
+                                            });
+                                          },
                                   ),
                                 ),
                                 Text(
@@ -506,11 +797,14 @@ class _TopicCustomizationScreenState
                               const Spacer(),
                               Switch(
                                 value: _timedMode,
-                                onChanged: (value) {
-                                  setState(() {
-                                    _timedMode = value;
-                                  });
-                                },
+                                onChanged: (_isExamModeSession &&
+                                        _isBaselineDiagnosticTopic)
+                                    ? null
+                                    : (value) {
+                                        setState(() {
+                                          _timedMode = value;
+                                        });
+                                      },
                               ),
                             ],
                           ),

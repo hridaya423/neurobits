@@ -1254,6 +1254,29 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final suggestedTopics = isInLearningPathMode
         ? const AsyncValue.data(<Map<String, dynamic>>[])
         : ref.watch(suggestedNewTopicsWithReasonsProvider);
+    final examTargetsAsync = ref.watch(userExamTargetsProvider);
+    const coreSubjects = <String>{
+      'mathematics',
+      'english language',
+      'english literature',
+      'biology',
+      'chemistry',
+      'physics',
+    };
+    final hasGcseSetup = examTargetsAsync.maybeWhen(
+      data: (targets) => targets.any(
+        (target) {
+          if ((target['examFamily']?.toString().toLowerCase() ?? '') !=
+              'gcse') {
+            return false;
+          }
+          final subject =
+              target['subject']?.toString().toLowerCase().trim() ?? '';
+          return coreSubjects.contains(subject);
+        },
+      ),
+      orElse: () => false,
+    );
     return RefreshIndicator(
         onRefresh: _refreshData,
         child: SafeArea(
@@ -1479,6 +1502,28 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                               foregroundColor:
                                   Theme.of(context).colorScheme.onPrimary,
                               padding: const EdgeInsets.symmetric(vertical: 16),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.school_outlined),
+                            label: Text(
+                              hasGcseSetup
+                                  ? 'Open GCSE Exam Dashboard'
+                                  : 'Start GCSE Exam Mode',
+                            ),
+                            onPressed: () {
+                              context.push(
+                                hasGcseSetup
+                                    ? '/exam-dashboard'
+                                    : '/exam-mode/setup',
+                              );
+                            },
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
                             ),
                           ),
                         ),

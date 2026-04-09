@@ -11,7 +11,9 @@
 import type * as analytics from "../analytics.js";
 import type * as badges from "../badges.js";
 import type * as challenges from "../challenges.js";
+import type * as exams from "../exams.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_gcseCore from "../lib/gcseCore.js";
 import type * as paths from "../paths.js";
 import type * as preferences from "../preferences.js";
 import type * as progress from "../progress.js";
@@ -31,7 +33,9 @@ declare const fullApi: ApiFromModules<{
   analytics: typeof analytics;
   badges: typeof badges;
   challenges: typeof challenges;
+  exams: typeof exams;
   "lib/auth": typeof lib_auth;
+  "lib/gcseCore": typeof lib_gcseCore;
   paths: typeof paths;
   preferences: typeof preferences;
   progress: typeof progress;

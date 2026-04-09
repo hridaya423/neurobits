@@ -45,6 +45,10 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Upload your school timetable image to build a personalized study plan.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Scan your school timetable to build a personalized study plan.</string>
 
 </dict>
 </plist>

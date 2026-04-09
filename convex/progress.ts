@@ -6,18 +6,26 @@ import { requireUser } from "./lib/auth";
 export const recordQuizCompletion = mutation({
   args: {
     challengeId: v.id("challenges"),
+    examTargetId: v.optional(v.id("userExamTargets")),
     completed: v.boolean(),
     attempts: v.number(),
     timeTakenSeconds: v.number(),
     accuracy: v.optional(v.number()),
+    marksAwarded: v.optional(v.number()),
+    marksAvailable: v.optional(v.number()),
     timezoneOffsetMinutes: v.optional(v.number()),
     answers: v.optional(
       v.array(
         v.object({
           questionIndex: v.number(),
           selectedOption: v.number(),
+          selectedAnswerText: v.optional(v.string()),
           isCorrect: v.boolean(),
           timeSpentSeconds: v.number(),
+          marksAwarded: v.optional(v.number()),
+          marksAvailable: v.optional(v.number()),
+          reasonCode: v.optional(v.string()),
+          reasonDetail: v.optional(v.string()),
         })
       )
     ),
@@ -32,13 +40,24 @@ export const recordQuizCompletion = mutation({
     const userId = await requireUser(ctx);
     const now = Date.now();
 
+    let validatedExamTargetId = args.examTargetId;
+    if (args.examTargetId !== undefined) {
+      const target = await ctx.db.get(args.examTargetId);
+      if (!target || target.userId !== userId) {
+        validatedExamTargetId = undefined;
+      }
+    }
+
     await ctx.db.insert("challengeAttempts", {
       userId,
       challengeId: args.challengeId,
+      examTargetId: validatedExamTargetId,
       completed: args.completed,
       attempts: args.attempts,
       timeTakenSeconds: args.timeTakenSeconds,
       accuracy: args.accuracy,
+      marksAwarded: args.marksAwarded,
+      marksAvailable: args.marksAvailable,
       answers: args.answers,
       createdAt: now,
     });
@@ -303,6 +322,8 @@ export const getTopicAnalytics = query({
     totalAttempts: v.number(),
     avgTimeSeconds: v.number(),
     avgAccuracy: v.number(),
+    avgMarksPct: v.number(),
+    bestMarksPct: v.number(),
     bestAccuracy: v.number(),
     bestTimeSeconds: v.number(),
     lastAttemptedAt: v.number(),
@@ -315,6 +336,8 @@ export const getTopicAnalytics = query({
         totalAttempts: 0,
         avgTimeSeconds: 0,
         avgAccuracy: 0,
+        avgMarksPct: 0,
+        bestMarksPct: 0,
         bestAccuracy: 0,
         bestTimeSeconds: 0,
         lastAttemptedAt: 0,
@@ -331,6 +354,8 @@ export const getTopicAnalytics = query({
         totalAttempts: 0,
         avgTimeSeconds: 0,
         avgAccuracy: 0,
+        avgMarksPct: 0,
+        bestMarksPct: 0,
         bestAccuracy: 0,
         bestTimeSeconds: 0,
         lastAttemptedAt: 0,
@@ -357,6 +382,9 @@ export const getTopicAnalytics = query({
     let timedAttempts = 0;
     let accuracySum = 0;
     let accuracyCount = 0;
+    let marksPctSum = 0;
+    let marksPctCount = 0;
+    let bestMarksPct = 0;
     let bestAccuracy = 0;
     let bestTimeSeconds = 0;
     let lastAttemptedAt = 0;
@@ -432,6 +460,19 @@ export const getTopicAnalytics = query({
         }
 
         if (
+          attempt.marksAwarded !== undefined &&
+          attempt.marksAvailable !== undefined &&
+          attempt.marksAvailable > 0
+        ) {
+          const marksPct = attempt.marksAwarded / attempt.marksAvailable;
+          marksPctSum += marksPct;
+          marksPctCount += 1;
+          if (marksPct > bestMarksPct) {
+            bestMarksPct = marksPct;
+          }
+        }
+
+        if (
           attempt.createdAt !== undefined &&
           attempt.createdAt > lastAttemptedAt
         ) {
@@ -452,6 +493,7 @@ export const getTopicAnalytics = query({
     const avgAccuracy =
       topicStats?.avgAccuracy ??
       (accuracyCount > 0 ? accuracySum / accuracyCount : 0);
+    const avgMarksPct = marksPctCount > 0 ? marksPctSum / marksPctCount : 0;
     const totalAttempts =
       topicStats?.attempts ?? (attemptCount > 0 ? attemptCount : progressAttempts);
 
@@ -459,6 +501,8 @@ export const getTopicAnalytics = query({
       totalAttempts,
       avgTimeSeconds,
       avgAccuracy,
+      avgMarksPct,
+      bestMarksPct,
       bestAccuracy,
       bestTimeSeconds,
       lastAttemptedAt,
@@ -522,6 +566,9 @@ export const getChallengeAnalytics = query({
     completionRate: v.number(),
     avgTimeSeconds: v.number(),
     avgAccuracy: v.number(),
+    avgMarksPct: v.number(),
+    avgMarksAwarded: v.number(),
+    avgMarksAvailable: v.number(),
   }),
   handler: async (ctx, args) => {
     const attempts = await ctx.db
@@ -537,6 +584,9 @@ export const getChallengeAnalytics = query({
         completionRate: 0,
         avgTimeSeconds: 0,
         avgAccuracy: 0,
+        avgMarksPct: 0,
+        avgMarksAwarded: 0,
+        avgMarksAvailable: 0,
       };
     }
 
@@ -549,12 +599,33 @@ export const getChallengeAnalytics = query({
       accuracies.length > 0
         ? accuracies.reduce((sum, a) => sum + a, 0) / accuracies.length
         : 0;
+    const markAttempts = attempts.filter(
+      (a) =>
+        a.marksAwarded !== undefined &&
+        a.marksAvailable !== undefined &&
+        a.marksAvailable > 0
+    );
+    const avgMarksAwarded =
+      markAttempts.length > 0
+        ? markAttempts.reduce((sum, a) => sum + (a.marksAwarded ?? 0), 0) /
+          markAttempts.length
+        : 0;
+    const avgMarksAvailable =
+      markAttempts.length > 0
+        ? markAttempts.reduce((sum, a) => sum + (a.marksAvailable ?? 0), 0) /
+          markAttempts.length
+        : 0;
+    const avgMarksPct =
+      avgMarksAvailable > 0 ? avgMarksAwarded / avgMarksAvailable : 0;
 
     return {
       totalAttempts: attempts.length,
       completionRate: completedCount / attempts.length,
       avgTimeSeconds: totalTime / attempts.length,
       avgAccuracy: avgAcc,
+      avgMarksPct,
+      avgMarksAwarded,
+      avgMarksAvailable,
     };
   },
 });

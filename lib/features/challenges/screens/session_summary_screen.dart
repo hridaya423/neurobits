@@ -14,6 +14,9 @@ class SessionSummaryScreen extends ConsumerStatefulWidget {
   final List<dynamic> selectedAnswers;
   final int totalTime;
   final double accuracy;
+  final double marksAwarded;
+  final double marksAvailable;
+  final bool examMode;
   final String topic;
   final String? quizName;
   const SessionSummaryScreen({
@@ -21,6 +24,9 @@ class SessionSummaryScreen extends ConsumerStatefulWidget {
     required this.selectedAnswers,
     required this.totalTime,
     required this.accuracy,
+    this.marksAwarded = 0,
+    this.marksAvailable = 0,
+    this.examMode = false,
     required this.topic,
     this.quizName,
     super.key,
@@ -109,16 +115,6 @@ class _SessionSummaryScreenState extends ConsumerState<SessionSummaryScreen> {
     }
   }
 
-  int _countCorrect() {
-    int correct = 0;
-    for (int i = 0; i < widget.questions.length; i++) {
-      final q = widget.questions[i];
-      final userAns = widget.selectedAnswers[i];
-      if (QuizReview.isAnswerCorrect(q, userAns)) correct++;
-    }
-    return correct;
-  }
-
   List<int> _incorrectIndices() {
     final indices = <int>[];
     for (int i = 0; i < widget.questions.length; i++) {
@@ -135,13 +131,24 @@ class _SessionSummaryScreenState extends ConsumerState<SessionSummaryScreen> {
     final buffer = StringBuffer();
     buffer.writeln('Quiz Topic: ${widget.topic}');
     buffer.writeln('Accuracy: ${(widget.accuracy * 100).toStringAsFixed(1)}%');
+    if (widget.marksAvailable > 0) {
+      buffer.writeln(
+          'Marks: ${widget.marksAwarded.toStringAsFixed(1)}/${widget.marksAvailable.toStringAsFixed(1)}');
+    }
     buffer.writeln('Total Time: ${widget.totalTime}s');
     for (int i = 0; i < widget.questions.length; i++) {
       final q = widget.questions[i];
+      final markScheme = q['markScheme'] ?? q['mark_scheme'];
+      final totalMarks = markScheme is Map
+          ? (markScheme['total_marks'] ?? markScheme['totalMarks'])
+          : null;
       buffer.writeln('Q${i + 1}: ${q['question'] ?? ''}');
       buffer.writeln('User Answer: ${widget.selectedAnswers[i] ?? ''}');
       buffer.writeln(
           'Correct Answer: ${q['solution'] ?? q['answer'] ?? q['options']?[q['solution']] ?? ''}');
+      if (totalMarks is num) {
+        buffer.writeln('Marks available: ${totalMarks.toStringAsFixed(1)}');
+      }
       buffer.writeln('---');
     }
     buffer.writeln(
@@ -205,38 +212,58 @@ class _SessionSummaryScreenState extends ConsumerState<SessionSummaryScreen> {
                       style: theme.textTheme.titleLarge
                           ?.copyWith(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _summaryTile(
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final tiles = <Widget>[
+                        _summaryTile(
                           context,
                           Icons.check_circle,
                           'Accuracy',
                           '${(widget.accuracy * 100).toStringAsFixed(1)}%',
                           Colors.green,
                         ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _summaryTile(
+                        _summaryTile(
                           context,
                           Icons.timer,
                           'Total time',
                           '${widget.totalTime}s',
                           Colors.blue,
                         ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _summaryTile(
+                        if (widget.marksAvailable > 0)
+                          _summaryTile(
+                            context,
+                            Icons.grading,
+                            'Marks',
+                            '${widget.marksAwarded.toStringAsFixed(1)}/${widget.marksAvailable.toStringAsFixed(1)}',
+                            Colors.orange,
+                          ),
+                        _summaryTile(
                           context,
                           Icons.question_answer,
                           'Questions',
                           '${widget.questions.length}',
                           Colors.deepPurple,
                         ),
-                      ),
-                    ],
+                      ];
+                      final hasMarksTile = widget.marksAvailable > 0;
+                      final isCompact = constraints.maxWidth < 560;
+                      final crossAxisCount =
+                          hasMarksTile ? (isCompact ? 2 : 4) : 3;
+                      final childAspectRatio =
+                          hasMarksTile ? 1.9 : (isCompact ? 1.35 : 1.6);
+                      return GridView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: crossAxisCount,
+                          crossAxisSpacing: 10,
+                          mainAxisSpacing: 10,
+                          childAspectRatio: childAspectRatio,
+                        ),
+                        itemCount: tiles.length,
+                        itemBuilder: (_, index) => tiles[index],
+                      );
+                    },
                   ),
                   const SizedBox(height: 24),
                   Text('AI Analysis',
@@ -300,6 +327,7 @@ class _SessionSummaryScreenState extends ConsumerState<SessionSummaryScreen> {
                               selectedAnswers: weakAnswers,
                               quizName: widget.quizName,
                               topic: widget.topic,
+                              examMode: widget.examMode,
                             ),
                           ),
                         );
@@ -318,6 +346,7 @@ class _SessionSummaryScreenState extends ConsumerState<SessionSummaryScreen> {
                             selectedAnswers: widget.selectedAnswers,
                             quizName: widget.quizName,
                             topic: widget.topic,
+                            examMode: widget.examMode,
                           ),
                         ),
                       );
@@ -335,6 +364,7 @@ class _SessionSummaryScreenState extends ConsumerState<SessionSummaryScreen> {
                       final file =
                           await File('${tempDir.path}/share_congrats.png')
                               .writeAsBytes(bytes.buffer.asUint8List());
+                      if (!context.mounted) return;
                       final box = context.findRenderObject() as RenderBox?;
                       final origin = box != null
                           ? box.localToGlobal(Offset.zero) & box.size
@@ -361,6 +391,7 @@ class _SessionSummaryScreenState extends ConsumerState<SessionSummaryScreen> {
     return '''🎉 I just completed a Neurobits quiz on "${widget.topic}"!\n\n'''
         'Results:\n'
         '• Score: ${(widget.accuracy * 100).toStringAsFixed(1)}%\n'
+        '${widget.marksAvailable > 0 ? '• Marks: ${widget.marksAwarded.toStringAsFixed(1)}/${widget.marksAvailable.toStringAsFixed(1)}\n' : ''}'
         '• Time: ${widget.totalTime}s\n'
         '\nNeurobits is an adaptive learning platform for brain training and knowledge mastery.\n'
         'Think you can do better? Try the app and challenge yourself!';
@@ -372,9 +403,9 @@ class _SessionSummaryScreenState extends ConsumerState<SessionSummaryScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest.withOpacity(0.22),
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.22),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colorScheme.outline.withOpacity(0.3)),
+        border: Border.all(color: colorScheme.outline.withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -383,10 +414,16 @@ class _SessionSummaryScreenState extends ConsumerState<SessionSummaryScreen> {
             children: [
               Icon(icon, color: accent, size: 18),
               const SizedBox(width: 6),
-              Text(label,
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.labelMedium?.copyWith(
                         color: colorScheme.onSurfaceVariant,
-                      )),
+                      ),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 6),

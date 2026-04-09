@@ -10,6 +10,12 @@ import 'package:neurobits/features/profile/screens/profile_screen.dart';
 import 'package:neurobits/features/landing/landingpage.dart';
 import 'package:neurobits/features/auth/login_screen.dart';
 import 'package:neurobits/features/reports/report_screen.dart';
+import 'package:neurobits/features/exams/exam_dashboard_screen.dart';
+import 'package:neurobits/features/exams/exam_mode_hub_screen.dart';
+import 'package:neurobits/features/exams/exam_mode_setup_screen.dart';
+import 'package:neurobits/features/exams/exam_planning_screen.dart';
+import 'package:neurobits/features/exams/exam_curriculum_breakdown_screen.dart';
+import 'package:neurobits/features/exams/exam_subject_report_screen.dart';
 import 'package:neurobits/services/auth_service.dart';
 import 'package:neurobits/features/challenges/screens/topic_customization_screen.dart';
 import 'package:neurobits/features/onboarding/onboarding_gate.dart';
@@ -110,6 +116,8 @@ final routerProvider = Provider<GoRouter>((ref) {
                         userPathChallengeId:
                             challenge['userPathChallengeId']?.toString() ??
                                 challenge['user_path_challenge_id']?.toString(),
+                        examTargetId: challenge['examTargetId']?.toString() ??
+                            challenge['exam_target_id']?.toString(),
                       )
                     : Scaffold(
                         body: Center(child: Text("Invalid challenge data"))),
@@ -132,11 +140,20 @@ final routerProvider = Provider<GoRouter>((ref) {
             pageBuilder: (context, state) => CustomTransitionPage(
               transitionDuration: const Duration(milliseconds: 300),
               child: TopicCustomizationScreen(
-                topic: Uri.decodeComponent(state.pathParameters['topic'] ?? ''),
+                topic: state.pathParameters['topic'] ?? '',
                 userPathChallengeId: (state.extra is Map<String, dynamic>)
                     ? (state.extra
                             as Map<String, dynamic>)['userPathChallengeId']
                         ?.toString()
+                    : null,
+                examTargetId: (state.extra is Map<String, dynamic>)
+                    ? (state.extra as Map<String, dynamic>)['examTargetId']
+                        ?.toString()
+                    : null,
+                quizPreset: (state.extra is Map<String, dynamic>)
+                    ? ((state.extra as Map<String, dynamic>)['quizPreset']
+                            as Map?)
+                        ?.map((key, value) => MapEntry(key.toString(), value))
                     : null,
               ),
               transitionsBuilder: _slideTransition,
@@ -176,6 +193,7 @@ final routerProvider = Provider<GoRouter>((ref) {
                       : false,
                   challengeId: extra['challengeId']?.toString(),
                   userPathChallengeId: extra['userPathChallengeId']?.toString(),
+                  examTargetId: extra['examTargetId']?.toString(),
                 ),
                 transitionsBuilder: _slideTransition,
               );
@@ -211,6 +229,60 @@ final routerProvider = Provider<GoRouter>((ref) {
             transitionsBuilder: _fadeTransition,
           );
         },
+      ),
+      GoRoute(
+        path: '/exam-dashboard',
+        pageBuilder: (context, state) => const CustomTransitionPage(
+          transitionDuration: Duration(milliseconds: 300),
+          child: ExamModeHubScreen(),
+          transitionsBuilder: _fadeTransition,
+        ),
+      ),
+      GoRoute(
+        path: '/exam-dashboard/planning',
+        pageBuilder: (context, state) => const CustomTransitionPage(
+          transitionDuration: Duration(milliseconds: 300),
+          child: ExamPlanningScreen(),
+          transitionsBuilder: _fadeTransition,
+        ),
+      ),
+      GoRoute(
+        path: '/exam-dashboard/subject/:targetId',
+        pageBuilder: (context, state) => CustomTransitionPage(
+          transitionDuration: const Duration(milliseconds: 300),
+          child: ExamDashboardScreen(
+            targetId: state.pathParameters['targetId'] ?? '',
+          ),
+          transitionsBuilder: _fadeTransition,
+        ),
+      ),
+      GoRoute(
+        path: '/exam-dashboard/subject/:targetId/report',
+        pageBuilder: (context, state) => CustomTransitionPage(
+          transitionDuration: const Duration(milliseconds: 300),
+          child: ExamSubjectReportScreen(
+            targetId: state.pathParameters['targetId'] ?? '',
+          ),
+          transitionsBuilder: _fadeTransition,
+        ),
+      ),
+      GoRoute(
+        path: '/exam-dashboard/subject/:targetId/curriculum',
+        pageBuilder: (context, state) => CustomTransitionPage(
+          transitionDuration: const Duration(milliseconds: 300),
+          child: ExamCurriculumBreakdownScreen(
+            targetId: state.pathParameters['targetId'] ?? '',
+          ),
+          transitionsBuilder: _fadeTransition,
+        ),
+      ),
+      GoRoute(
+        path: '/exam-mode/setup',
+        pageBuilder: (context, state) => const CustomTransitionPage(
+          transitionDuration: Duration(milliseconds: 300),
+          child: ExamModeSetupScreen(),
+          transitionsBuilder: _fadeTransition,
+        ),
       ),
     ],
   );

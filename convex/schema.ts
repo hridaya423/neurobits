@@ -116,17 +116,25 @@ export default defineSchema({
   challengeAttempts: defineTable({
     userId: v.id("users"),
     challengeId: v.id("challenges"),
+    examTargetId: v.optional(v.id("userExamTargets")),
     completed: v.boolean(),
     attempts: v.number(),
     timeTakenSeconds: v.number(),
     accuracy: v.optional(v.number()),
+    marksAwarded: v.optional(v.number()),
+    marksAvailable: v.optional(v.number()),
     answers: v.optional(
       v.array(
         v.object({
           questionIndex: v.number(),
           selectedOption: v.number(),
+          selectedAnswerText: v.optional(v.string()),
           isCorrect: v.boolean(),
           timeSpentSeconds: v.number(),
+          marksAwarded: v.optional(v.number()),
+          marksAvailable: v.optional(v.number()),
+          reasonCode: v.optional(v.string()),
+          reasonDetail: v.optional(v.string()),
         })
       )
     ),
@@ -138,7 +146,12 @@ export default defineSchema({
       "createdAt",
     ])
     .index("by_user_id_and_created_at", ["userId", "createdAt"])
-    .index("by_challenge_id_and_created_at", ["challengeId", "createdAt"]),
+    .index("by_challenge_id_and_created_at", ["challengeId", "createdAt"])
+    .index("by_user_id_and_exam_target_id_and_created_at", [
+      "userId",
+      "examTargetId",
+      "createdAt",
+    ]),
 
   userChallengeProgress: defineTable({
     userId: v.id("users"),
@@ -190,6 +203,108 @@ export default defineSchema({
     preferredQuestionTypes: v.array(v.string()),
     updatedAt: v.number(),
   }).index("by_user_id", ["userId"]),
+
+  examCatalog: defineTable({
+    slug: v.string(),
+    displayName: v.string(),
+    countryCode: v.string(),
+    countryName: v.string(),
+    examFamily: v.string(),
+    board: v.string(),
+    level: v.string(),
+    subject: v.string(),
+    year: v.optional(v.number()),
+    aliases: v.array(v.string()),
+    specUrl: v.optional(v.string()),
+    isActive: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_slug", ["slug"])
+    .index("by_country_code_and_exam_family", ["countryCode", "examFamily"])
+    .index("by_is_active_and_updated_at", ["isActive", "updatedAt"]),
+
+  userExamTargets: defineTable({
+    userId: v.id("users"),
+    countryCode: v.string(),
+    countryName: v.string(),
+    examFamily: v.string(),
+    board: v.string(),
+    level: v.string(),
+    subject: v.string(),
+    year: v.optional(v.number()),
+    currentGrade: v.optional(v.string()),
+    targetGrade: v.optional(v.string()),
+    mockDateAt: v.optional(v.number()),
+    examDateAt: v.optional(v.number()),
+    timetableMode: v.optional(v.string()),
+    timetableProvider: v.optional(v.string()),
+    timetableSyncedAt: v.optional(v.number()),
+    timetableSummary: v.optional(v.string()),
+    timetableSourceText: v.optional(v.string()),
+    timetableSlots: v.optional(
+      v.array(
+        v.object({
+          day: v.string(),
+          start: v.string(),
+          end: v.string(),
+          subject: v.string(),
+        })
+      )
+    ),
+    revisionWindows: v.optional(
+      v.array(
+        v.object({
+          day: v.string(),
+          start: v.string(),
+          end: v.string(),
+          durationMinutes: v.number(),
+        })
+      )
+    ),
+    weeklyStudyMinutes: v.optional(v.number()),
+    weeklySessionsTarget: v.optional(v.number()),
+    intentQuery: v.optional(v.string()),
+    sourceCatalogSlug: v.optional(v.string()),
+    isActive: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user_id_and_updated_at", ["userId", "updatedAt"])
+    .index("by_user_id_and_is_active_and_updated_at", [
+      "userId",
+      "isActive",
+      "updatedAt",
+    ]),
+
+  examKnowledge: defineTable({
+    slug: v.string(),
+    countryCode: v.string(),
+    examFamily: v.string(),
+    board: v.string(),
+    level: v.string(),
+    subject: v.string(),
+    year: v.optional(v.number()),
+    sourceType: v.string(),
+    title: v.string(),
+    content: v.string(),
+    tags: v.array(v.string()),
+    sourceUrl: v.optional(v.string()),
+    sourceDocId: v.optional(v.string()),
+    license: v.optional(v.string()),
+    qualityScore: v.optional(v.number()),
+    isActive: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_slug", ["slug"])
+    .index("by_is_active_and_updated_at", ["isActive", "updatedAt"]) 
+    .index("by_country_and_exam_family_and_updated_at", [
+      "countryCode",
+      "examFamily",
+      "updatedAt",
+    ])
+    .index("by_source_type_and_updated_at", ["sourceType", "updatedAt"]),
 
   userRecommendations: defineTable({
     userId: v.id("users"),

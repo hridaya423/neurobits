@@ -8,12 +8,14 @@ class QuizReviewScreen extends StatefulWidget {
   final List<dynamic> selectedAnswers;
   final String? quizName;
   final String? topic;
+  final bool examMode;
   const QuizReviewScreen({
     super.key,
     required this.questions,
     required this.selectedAnswers,
     this.quizName,
     this.topic,
+    this.examMode = false,
   });
   @override
   State<QuizReviewScreen> createState() => _QuizReviewScreenState();
@@ -22,6 +24,13 @@ class QuizReviewScreen extends StatefulWidget {
 class _QuizReviewScreenState extends State<QuizReviewScreen> {
   List<String?> _explanations = [];
   List<bool> _loading = [];
+
+  static const Set<String> _genericFallbackReasons = {
+    'the response did not match the expected answer.',
+    'answer did not match the expected answer.',
+    'the response did not satisfy all expected criteria.',
+    'answer did not satisfy the mark-scheme criteria.',
+  };
   @override
   void initState() {
     super.initState();
@@ -215,6 +224,217 @@ class _QuizReviewScreenState extends State<QuizReviewScreen> {
     );
   }
 
+  Map<String, dynamic>? _extractMarkScheme(Map<String, dynamic> question) {
+    final raw = question['markScheme'] ?? question['mark_scheme'];
+    if (raw is Map<String, dynamic>) return raw;
+    if (raw is Map) {
+      return Map<String, dynamic>.from(
+        raw.map((key, value) => MapEntry(key.toString(), value)),
+      );
+    }
+    return null;
+  }
+
+  List<String> _normalizedStringList(dynamic raw) {
+    if (raw is! List) return const <String>[];
+    return raw
+        .map((item) => item?.toString().trim())
+        .whereType<String>()
+        .where((item) => item.isNotEmpty)
+        .toSet()
+        .toList();
+  }
+
+  List<String> _criterionAcceptableAnswers(Map<String, dynamic> criterion) {
+    return _normalizedStringList(
+      criterion['acceptable_answers'] ?? criterion['acceptableAnswers'],
+    );
+  }
+
+  List<String> _markSchemeAcceptableAnswers(Map<String, dynamic> markScheme) {
+    return _normalizedStringList(
+      markScheme['acceptable_answers'] ?? markScheme['acceptableAnswers'],
+    );
+  }
+
+  Widget _buildMarkSchemeCard(
+      BuildContext context, Map<String, dynamic> markScheme) {
+    final theme = Theme.of(context);
+    final totalMarksRaw = markScheme['total_marks'] ?? markScheme['totalMarks'];
+    final totalMarks = totalMarksRaw is num ? totalMarksRaw.toInt() : null;
+    final criteriaRaw = markScheme['criteria'];
+    final criteria = criteriaRaw is List
+        ? criteriaRaw
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(
+                item.map((k, v) => MapEntry('$k', v))))
+            .toList()
+        : const <Map<String, dynamic>>[];
+    final acceptableAnswers = _markSchemeAcceptableAnswers(markScheme);
+
+    if (totalMarks == null && criteria.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(top: 10, bottom: 4),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color:
+            theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+            color: theme.colorScheme.outline.withValues(alpha: 0.24)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            totalMarks == null
+                ? 'Mark Scheme'
+                : 'Mark Scheme ($totalMarks marks)',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (acceptableAnswers.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Acceptable answers',
+              style: theme.textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: acceptableAnswers
+                  .take(4)
+                  .map((answer) => Chip(label: Text(answer)))
+                  .toList(),
+            ),
+          ],
+          if (criteria.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            ...criteria.take(6).map((criterion) {
+              final label = criterion['label']?.toString().trim() ?? 'Criteria';
+              final marksRaw = criterion['marks'];
+              final marks = marksRaw is num ? marksRaw.toInt() : null;
+              final description =
+                  criterion['description']?.toString().trim() ?? '';
+              final criterionAcceptable =
+                  _criterionAcceptableAnswers(criterion);
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surface.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: theme.colorScheme.outline.withValues(alpha: 0.18),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        marks == null ? label : '$label ($marks)',
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (description.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(description, style: theme.textTheme.bodySmall),
+                      ],
+                      if (criterionAcceptable.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          'Also accept:',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          criterionAcceptable.take(3).join(' • '),
+                          style: theme.textTheme.labelSmall,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ],
+        ],
+      ),
+    );
+  }
+
+  double _questionMarksAvailable(Map<String, dynamic> question) {
+    if (!widget.examMode) return 0.0;
+    final markScheme = _extractMarkScheme(question);
+    if (markScheme == null) return 0.0;
+    final totalRaw = markScheme['total_marks'] ?? markScheme['totalMarks'];
+    if (totalRaw is num && totalRaw > 0) return totalRaw.toDouble();
+    return 0.0;
+  }
+
+  double _questionMarksAwarded(Map<String, dynamic> question, bool isCorrect) {
+    final stored = question['marksAwarded'];
+    if (stored is num && stored >= 0) {
+      return stored.toDouble();
+    }
+    if (!isCorrect) return 0.0;
+    return _questionMarksAvailable(question);
+  }
+
+  bool _isGenericFallbackReason(String text) {
+    final normalized = text.trim().toLowerCase();
+    if (normalized.isEmpty) return false;
+    if (_genericFallbackReasons.contains(normalized)) return true;
+    return normalized.contains('did not match the expected answer') ||
+        normalized.contains('did not satisfy all expected criteria');
+  }
+
+  String _feedbackReason(Map<String, dynamic> question) {
+    final storedReason = question['markReasonDetail']?.toString().trim() ?? '';
+    if (storedReason.isNotEmpty) {
+      if (!widget.examMode && _isGenericFallbackReason(storedReason)) {
+        return '';
+      }
+      return storedReason;
+    }
+    final markScheme = _extractMarkScheme(question);
+    if (!widget.examMode || markScheme == null) {
+      return '';
+    }
+    final criteriaRaw = markScheme['criteria'];
+    if (criteriaRaw is List) {
+      final insights = criteriaRaw
+          .whereType<Map>()
+          .take(2)
+          .map((criterion) {
+            final label = criterion['label']?.toString().trim() ?? '';
+            final desc = criterion['description']?.toString().trim() ?? '';
+            if (label.isNotEmpty && desc.isNotEmpty) {
+              return '$label: $desc';
+            }
+            return label.isNotEmpty ? label : desc;
+          })
+          .where((line) => line.trim().isNotEmpty)
+          .toList();
+      if (insights.isNotEmpty) {
+        return insights.join(' | ');
+      }
+    }
+    return '';
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -233,7 +453,11 @@ class _QuizReviewScreenState extends State<QuizReviewScreen> {
           final displayUserAnswer =
               userAnswer.trim().isEmpty ? 'No answer' : userAnswer;
           final correctAnswer = _formatCorrectAnswer(q);
+          final markScheme = _extractMarkScheme(q);
           final isCorrect = QuizReview.isAnswerCorrect(q, rawAnswer);
+          final marksAvailable = _questionMarksAvailable(q);
+          final marksAwarded = _questionMarksAwarded(q, isCorrect);
+          final feedbackReason = _feedbackReason(q);
           return Card(
             elevation: 2,
             shape:
@@ -243,7 +467,12 @@ class _QuizReviewScreenState extends State<QuizReviewScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Q${i + 1}:',
+                  Text(() {
+                    final marksLabel = marksAvailable > 0
+                        ? ' (${marksAvailable.toStringAsFixed(marksAvailable % 1 == 0 ? 0 : 1)})'
+                        : '';
+                    return 'Q${i + 1}$marksLabel:';
+                  }(),
                       style: theme.textTheme.titleMedium
                           ?.copyWith(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
@@ -287,6 +516,35 @@ class _QuizReviewScreenState extends State<QuizReviewScreen> {
                     const Text('Correct!',
                         style: TextStyle(
                             color: Colors.green, fontWeight: FontWeight.bold)),
+                  if (!isCorrect && marksAvailable > 0 && marksAwarded > 0)
+                    const Text('Partial credit awarded.',
+                        style: TextStyle(
+                            color: Colors.orange, fontWeight: FontWeight.bold)),
+                  if (marksAvailable > 0) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      'Marks: ${marksAwarded.toStringAsFixed(1)}/${marksAvailable.toStringAsFixed(1)}',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                  ],
+                  if (!isCorrect &&
+                      marksAvailable <= 0 &&
+                      feedbackReason.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      feedbackReason,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                  if (widget.examMode &&
+                      markScheme != null &&
+                      marksAvailable > 0)
+                    _buildMarkSchemeCard(context, markScheme),
                   const SizedBox(height: 10),
                   OutlinedButton.icon(
                     onPressed: _loading[i] ? null : () => _fetchExplanation(i),
@@ -295,7 +553,8 @@ class _QuizReviewScreenState extends State<QuizReviewScreen> {
                     style: OutlinedButton.styleFrom(
                       foregroundColor: theme.colorScheme.primary,
                       side: BorderSide(
-                          color: theme.colorScheme.primary.withOpacity(0.4)),
+                          color:
+                              theme.colorScheme.primary.withValues(alpha: 0.4)),
                       padding: const EdgeInsets.symmetric(
                           horizontal: 14, vertical: 10),
                     ),

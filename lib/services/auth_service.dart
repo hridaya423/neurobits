@@ -20,6 +20,7 @@ class AuthService {
   AuthStatus get currentStatus => _currentStatus;
 
   StreamSubscription<User?>? _firebaseAuthSub;
+  String? _lastKnownIdToken;
 
   AuthService._();
 
@@ -105,14 +106,38 @@ class AuthService {
     final user = _firebaseAuth.currentUser;
     if (user == null) {
       _setStatus(AuthStatus.unauthenticated);
+      _lastKnownIdToken = null;
       return null;
     }
     try {
-      return await user.getIdToken(forceRefresh);
+      final token = await user.getIdToken(forceRefresh);
+      if (token != null && token.trim().isNotEmpty) {
+        _lastKnownIdToken = token;
+      }
+      return token;
+    } on FirebaseAuthException catch (e) {
+      debugPrint(
+          'AuthService: Error getting ID token: ${e.code} - ${e.message}');
+
+      final retryable = e.code == 'network-request-failed' ||
+          e.code == 'too-many-requests' ||
+          e.code == 'internal-error' ||
+          e.code == 'unknown';
+
+      if (forceRefresh && retryable) {
+        try {
+          final cachedToken = await user.getIdToken(false);
+          if (cachedToken != null && cachedToken.trim().isNotEmpty) {
+            _lastKnownIdToken = cachedToken;
+            return cachedToken;
+          }
+        } catch (_) {}
+      }
+
+      return _lastKnownIdToken;
     } catch (e) {
       debugPrint('AuthService: Error getting ID token: $e');
-      _setStatus(AuthStatus.unauthenticated);
-      return null;
+      return _lastKnownIdToken;
     }
   }
 
