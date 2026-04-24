@@ -73,6 +73,8 @@ class _SessionSummaryScreenState extends ConsumerState<SessionSummaryScreen> {
 
       final String analysis = await AIService.analyzeQuizPerformance(summary)
           .timeout(const Duration(seconds: 15));
+      if (!mounted) return;
+
       try {
         final sessionRepo = ref.read(sessionAnalysisRepositoryProvider);
         await sessionRepo.save(
@@ -85,6 +87,8 @@ class _SessionSummaryScreenState extends ConsumerState<SessionSummaryScreen> {
       } catch (e) {
         debugPrint('Error saving session analysis: $e');
       }
+      if (!mounted) return;
+
       if (analysis.trim().isNotEmpty) {
         final parsed = _parseAnalysis(analysis);
         final summaryList = parsed['summary'];

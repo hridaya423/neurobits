@@ -211,6 +211,78 @@ class AIService {
     );
   }
 
+  static bool _isHexDigit(String char) {
+    if (char.isEmpty) return false;
+    final code = char.codeUnitAt(0);
+    final isDigit = code >= 48 && code <= 57;
+    final isLowerHex = code >= 97 && code <= 102;
+    final isUpperHex = code >= 65 && code <= 70;
+    return isDigit || isLowerHex || isUpperHex;
+  }
+
+  static bool _isValidUnicodeEscape(String input, int backslashIndex) {
+    if (backslashIndex + 5 >= input.length) return false;
+    if (input[backslashIndex + 1] != 'u') return false;
+    for (int i = backslashIndex + 2; i <= backslashIndex + 5; i++) {
+      if (!_isHexDigit(input[i])) return false;
+    }
+    return true;
+  }
+
+  static String _escapeInvalidBackslashesInJsonStrings(String input) {
+    final out = StringBuffer();
+    bool inString = false;
+    bool escaped = false;
+
+    for (int i = 0; i < input.length; i++) {
+      final char = input[i];
+
+      if (!inString) {
+        out.write(char);
+        if (char == '"') {
+          inString = true;
+        }
+        continue;
+      }
+
+      if (escaped) {
+        out.write(char);
+        escaped = false;
+        continue;
+      }
+
+      if (char == r'\') {
+        final hasNext = i + 1 < input.length;
+        if (!hasNext) {
+          out.write(r'\\');
+          continue;
+        }
+
+        final next = input[i + 1];
+        final isValidSimpleEscape = '"\\/bfnrt'.contains(next);
+        final isValidUnicodeEscape = next == 'u' && _isValidUnicodeEscape(input, i);
+
+        if (isValidSimpleEscape || isValidUnicodeEscape) {
+          out.write(char);
+          escaped = true;
+        } else {
+          out.write(r'\\');
+        }
+        continue;
+      }
+
+      if (char == '"') {
+        out.write(char);
+        inString = false;
+        continue;
+      }
+
+      out.write(char);
+    }
+
+    return out.toString();
+  }
+
   static String _normalizeCommonJsonQuirks(String input) {
     var normalized = input
         .replaceAll('\u201c', '"')
@@ -305,14 +377,25 @@ class AIService {
 
     final jsonContent = rawContent.substring(startIndex, endIndex + 1);
     final normalized = _normalizeCommonJsonQuirks(jsonContent);
+    final escapedBackslashes = _escapeInvalidBackslashesInJsonStrings(jsonContent);
+    final escapedBackslashesNormalized =
+        _escapeInvalidBackslashesInJsonStrings(normalized);
     final repaired = _escapeInnerQuotesInJsonStrings(jsonContent);
     final repairedNormalized = _escapeInnerQuotesInJsonStrings(normalized);
+    final repairedEscaped = _escapeInnerQuotesInJsonStrings(escapedBackslashes);
+    final repairedEscapedNormalized =
+        _escapeInnerQuotesInJsonStrings(escapedBackslashesNormalized);
     final attempts = <String>[
       jsonContent,
       normalized,
+      escapedBackslashes,
+      escapedBackslashesNormalized,
       repaired,
       repairedNormalized,
+      repairedEscaped,
+      repairedEscapedNormalized,
       _removeTrailingCommas(repairedNormalized),
+      _removeTrailingCommas(repairedEscapedNormalized),
     ];
 
     Object? lastError;
@@ -337,14 +420,25 @@ class AIService {
 
     final jsonContent = rawContent.substring(startIndex, endIndex + 1);
     final normalized = _normalizeCommonJsonQuirks(jsonContent);
+    final escapedBackslashes = _escapeInvalidBackslashesInJsonStrings(jsonContent);
+    final escapedBackslashesNormalized =
+        _escapeInvalidBackslashesInJsonStrings(normalized);
     final repaired = _escapeInnerQuotesInJsonStrings(jsonContent);
     final repairedNormalized = _escapeInnerQuotesInJsonStrings(normalized);
+    final repairedEscaped = _escapeInnerQuotesInJsonStrings(escapedBackslashes);
+    final repairedEscapedNormalized =
+        _escapeInnerQuotesInJsonStrings(escapedBackslashesNormalized);
     final attempts = <String>[
       jsonContent,
       normalized,
+      escapedBackslashes,
+      escapedBackslashesNormalized,
       repaired,
       repairedNormalized,
+      repairedEscaped,
+      repairedEscapedNormalized,
       _removeTrailingCommas(repairedNormalized),
+      _removeTrailingCommas(repairedEscapedNormalized),
     ];
 
     Object? lastError;
