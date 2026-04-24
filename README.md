@@ -20,7 +20,8 @@ The main idea is to make learning feel less repetitive by generating fresh conte
 
 
 
-https://github.com/user-attachments/assets/7859dc25-2acf-4062-b873-e490139d32fe
+
+https://github.com/user-attachments/assets/1abecb0c-1bb5-467e-a4ee-f9cddb115a25
 
 
 
