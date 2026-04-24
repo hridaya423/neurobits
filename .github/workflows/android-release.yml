@@ -39,13 +39,17 @@ jobs:
         run: >
           flutter build apk --release
           --dart-define=CONVEX_URL=${{ secrets.CONVEX_URL }}
+          --dart-define=CONVEX_DEPLOYMENT_URL=${{ secrets.CONVEX_DEPLOYMENT_URL }}
           --dart-define=OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
+          --dart-define=HACKCLUB_API_KEY=${{ secrets.HACKCLUB_API_KEY }}
 
       - name: Build App Bundle
         run: >
           flutter build appbundle --release
           --dart-define=CONVEX_URL=${{ secrets.CONVEX_URL }}
+          --dart-define=CONVEX_DEPLOYMENT_URL=${{ secrets.CONVEX_DEPLOYMENT_URL }}
           --dart-define=OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
+          --dart-define=HACKCLUB_API_KEY=${{ secrets.HACKCLUB_API_KEY }}
 
       - name: Get version from tag
         id: get_version

@@ -30,7 +30,7 @@ class ContentModerationService {
     _hackclubApiAvailable = AIService.isConfigured();
     if (!_hackclubApiAvailable) {
       debugPrint(
-          'Warning: OPENROUTER_API_KEY not found. Content moderation will be limited.');
+          'Warning: OPENROUTER_API_KEY/HACKCLUB_API_KEY not found. Content moderation will be limited.');
     }
   }
 

@@ -1,54 +1,88 @@
 # Neurobits
 
-A brain training app that uses AI to generate personalized learning challenges. Built with Flutter and uses Hackclub AI for now, it adapts to how you learn and keeps things interesting with daily challenges.
+Neurobits is an adaptive learning app built with Flutter. It combines AI-generated quiz content, personalized onboarding, and exam-aware practice flows with progress analytics and reporting.
 
-## What it does
+- `lib/`: Flutter mobile app
+- `convex/`: Convex backend functions and seed data
+- `neurobits/`: Next.js website
 
-This app generates quiz content on the fly based on your progress and preferences. Instead of following a fixed path, the AI creates new challenges and adjusts difficulty as you go. You can track streaks, review past challenges, and follow learning paths that match your goals.
+## Current Product Features
 
-The main idea is to make learning feel less repetitive by generating fresh content each time, while still tracking your progress and keeping you challenged at the right level.
+- Adaptive quiz generation with mixed formats (`mcq`, `input`, `multi_select`, `ordering`, `fill_blank`, `code`)
+- AI-assisted session summaries and performance feedback
+- Exam specialization (target selection, year, dates, study capacity)
+- Exam dashboard, subject report, and curriculum breakdown screens
+- Report center with daily/weekly/monthly views and PNG/PDF export
+- Learning paths, streak onboarding, and user preference onboarding
 
-## Features
+## Requirements
 
-- AI-generated learning challenges
-- Dynamic difficulty that adjusts based on your performance
-- Daily challenges to build consistency
-- Learning streaks and progress tracking
-- Custom learning paths tailored to your goals
-- Review functionality for completed challenges
-- User authentication and data storage via Supabase
+- Flutter `>=3.27.4`
+- Dart `>=3.6.2 <4.0.0`
 
+## Environment Variables
 
+Create a `.env` file in the repository root.
 
+Primary variable names:
 
-https://github.com/user-attachments/assets/1abecb0c-1bb5-467e-a4ee-f9cddb115a25
+```env
+CONVEX_DEPLOYMENT_URL=your_convex_deployment_url
+HACKCLUB_API_KEY=your_hackclub_api_key
+```
 
+Supported aliases:
 
+```env
+CONVEX_URL=your_convex_deployment_url
+OPENROUTER_API_KEY=your_hackclub_api_key
+```
 
-## Getting Started
+Both Flutter app and timetable/AI services accept either naming scheme.
 
-This project requires Flutter to be installed.
+## Local Development
 
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/hridaya423/neurobits
-    cd neurobits
-    ```
-2.  **Set up environment variables:**
-    *   Create a `.env` file in the root directory.
-        ```
-        SUPABASE_URL=YOUR_SUPABASE_URL
-        SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
-        ```
-3.  **Install dependencies:**
-    ```bash
-    flutter pub get
-    ```
-4.  **Run the app:**
-    ```bash
-    flutter run
-    ```
+Flutter app:
+
+```bash
+flutter pub get
+flutter run
+```
+
+Static checks:
+
+```bash
+flutter analyze
+flutter test
+```
+
+## Convex Seed / Data Scripts
+
+From repo root:
+
+```bash
+npm run seed:examCatalog
+npm run seed:examKnowledge
+npm run seed:examAll
+```
+
+Helper script entry points:
+
+```bash
+npm run sme:scrape
+npm run sme:normalize
+npm run sme:bulk
+```
+## Website
+
+The site is in `neurobits/`.
+
+```bash
+cd neurobits
+npm install
+npm run dev
+```
 
 ## License
 
-MIT LICENSE
+MIT

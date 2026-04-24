@@ -19,14 +19,19 @@ class ConvexClientService {
 
     const deploymentUrl =
         String.fromEnvironment('CONVEX_URL', defaultValue: '');
+    const legacyDeploymentUrl =
+        String.fromEnvironment('CONVEX_DEPLOYMENT_URL', defaultValue: '');
 
     final env = dotenv.isInitialized ? dotenv.env : const <String, String>{};
     final url = deploymentUrl.isNotEmpty
         ? deploymentUrl
-        : (env['CONVEX_URL'] ?? env['CONVEX_DEPLOYMENT_URL'] ?? '');
+        : (legacyDeploymentUrl.isNotEmpty
+            ? legacyDeploymentUrl
+            : (env['CONVEX_URL'] ?? env['CONVEX_DEPLOYMENT_URL'] ?? ''));
 
     if (url.isEmpty) {
-      throw Exception('CONVEX_URL must be configured');
+      throw Exception(
+          'CONVEX_URL/CONVEX_DEPLOYMENT_URL must be configured');
     }
 
     service._client = await InternalConvexClient.init(deploymentUrl: url);

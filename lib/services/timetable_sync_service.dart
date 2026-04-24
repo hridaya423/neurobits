@@ -43,6 +43,7 @@ class TimetablePlanDraft {
 
 class TimetableSyncService {
   static const String _apiKeyEnvName = 'OPENROUTER_API_KEY';
+  static const String _legacyApiKeyEnvName = 'HACKCLUB_API_KEY';
   static const String _chatCompletionsUrl =
       'https://ai.hackclub.com/proxy/v1/chat/completions';
   static const String _replicateBaseUrl =
@@ -74,10 +75,19 @@ class TimetableSyncService {
 
   static String _resolveApiKey() {
     final envKey = dotenv.isInitialized ? dotenv.env[_apiKeyEnvName] : null;
+    final legacyEnvKey =
+        dotenv.isInitialized ? dotenv.env[_legacyApiKeyEnvName] : null;
     const definedKey = String.fromEnvironment(_apiKeyEnvName, defaultValue: '');
-    final apiKey = definedKey.isNotEmpty ? definedKey : envKey;
+    const legacyDefinedKey =
+        String.fromEnvironment(_legacyApiKeyEnvName, defaultValue: '');
+    final apiKey = definedKey.isNotEmpty
+        ? definedKey
+        : (legacyDefinedKey.isNotEmpty
+            ? legacyDefinedKey
+            : (envKey ?? legacyEnvKey));
     if (apiKey == null || apiKey.trim().isEmpty) {
-      throw Exception('$_apiKeyEnvName is not configured.');
+      throw Exception(
+          '$_apiKeyEnvName/$_legacyApiKeyEnvName is not configured.');
     }
     return apiKey.trim();
   }

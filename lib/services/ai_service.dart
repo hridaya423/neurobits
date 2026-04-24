@@ -73,6 +73,7 @@ class AIService {
     'z-ai/glm-4.7',
   ];
   static const String _apiKeyEnvName = 'OPENROUTER_API_KEY';
+  static const String _legacyApiKeyEnvName = 'HACKCLUB_API_KEY';
   static bool _validInput = true;
   static bool _isConfigured = false;
   static String? _apiKey;
@@ -87,11 +88,20 @@ class AIService {
   static Future<void> init() async {
     _validInput = true;
     final envKey = dotenv.isInitialized ? dotenv.env[_apiKeyEnvName] : null;
+    final legacyEnvKey =
+        dotenv.isInitialized ? dotenv.env[_legacyApiKeyEnvName] : null;
     const definedKey = String.fromEnvironment(_apiKeyEnvName, defaultValue: '');
-    _apiKey = definedKey.isNotEmpty ? definedKey : envKey;
+    const legacyDefinedKey =
+        String.fromEnvironment(_legacyApiKeyEnvName, defaultValue: '');
+    _apiKey = definedKey.isNotEmpty
+        ? definedKey
+        : (legacyDefinedKey.isNotEmpty
+            ? legacyDefinedKey
+            : (envKey ?? legacyEnvKey));
     _isConfigured = _apiKey != null && _apiKey!.isNotEmpty;
     if (!_isConfigured) {
-      debugPrint('[AIService] Warning: $_apiKeyEnvName not configured.');
+      debugPrint(
+          '[AIService] Warning: $_apiKeyEnvName/$_legacyApiKeyEnvName not configured.');
     }
   }
 
