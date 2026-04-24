@@ -203,7 +203,7 @@ export default function Home() {
         <section className="min-h-screen flex items-center justify-center px-6 py-24">
           <div style={{ pointerEvents: 'auto' }} className="max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-center">
             <div className="text-center lg:text-left order-1">
-              <h1 className={`${tinos.className} text-5xl sm:text-6xl md:text-7xl lg:text-9xl font-semibold mb-6 lg:mb-8 text-white leading-none tracking-tight`}>
+              <h1 className={`${tinos.className} text-5xl sm:text-6xl md:text-7xl lg:text-9xl font-semibold mb-1 sm:mb-2 lg:mb-3 text-white leading-none tracking-tight`}>
                 Neurobits
               </h1>
               <p className={`${montserrat.className} text-lg sm:text-xl md:text-2xl lg:text-3xl text-white/60 font-normal tracking-wide`}>
@@ -259,10 +259,9 @@ export default function Home() {
           <div className="flex flex-col items-center justify-center gap-6">
             <a
               href="https://github.com/hridaya423/neurobits/releases"
-              className={`${montserrat.className} group relative inline-flex items-center justify-center rounded-full px-12 py-6 bg-white text-[#030108] text-sm sm:text-base font-semibold tracking-wide hover:scale-105 transition-all duration-500 min-w-[280px] overflow-hidden`}
+              className={`${montserrat.className} inline-flex items-center justify-center rounded-full px-8 sm:px-10 py-4 sm:py-[1.125rem] bg-white text-[#030108] text-sm sm:text-base font-semibold tracking-wide transition-[transform,box-shadow,background-color] duration-300 ease-out min-w-[220px] hover:-translate-y-0.5 hover:bg-white/95 hover:shadow-[0_12px_32px_rgba(0,0,0,0.35)]`}
             >
-              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#7C3AED]/20 to-transparent -translate-x-[200%] group-hover:translate-x-[200%] transition-transform duration-1000 ease-in-out" />
-              <span className="relative z-10">Download Latest Build</span>
+              Download Latest Build
             </a>
             
             <a
