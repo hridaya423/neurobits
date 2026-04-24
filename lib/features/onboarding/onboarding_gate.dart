@@ -64,11 +64,13 @@ class _OnboardingGateState extends ConsumerState<OnboardingGate> {
       final bool shouldShowOnboarding = !onboardingComplete;
 
       if (shouldShowOnboarding && mounted) {
+        final rootNavigator = Navigator.of(context);
         await showDialog(
           context: context,
           barrierDismissible: false,
           builder: (dialogContext) => StreakOnboardingScreen(
             onComplete: (goal, adaptiveDifficulty) async {
+              final dialogNavigator = Navigator.of(dialogContext);
               if (!mounted) return;
               try {
                 await userRepo.updateProfile(streakGoal: goal);
@@ -76,13 +78,12 @@ class _OnboardingGateState extends ConsumerState<OnboardingGate> {
                   adaptiveDifficultyEnabled: adaptiveDifficulty,
                 );
 
-                if (!mounted) return;
-                if (Navigator.of(dialogContext).canPop()) {
-                  Navigator.of(dialogContext).pop();
+                if (dialogContext.mounted && dialogNavigator.canPop()) {
+                  dialogNavigator.pop();
                 }
 
                 if (!mounted) return;
-                await Navigator.of(context).push(
+                await rootNavigator.push(
                   MaterialPageRoute(
                     fullscreenDialog: true,
                     builder: (_) => QuizPreferencesOnboardingScreen(
@@ -96,7 +97,7 @@ class _OnboardingGateState extends ConsumerState<OnboardingGate> {
                 );
 
                 if (!mounted) return;
-                await Navigator.of(context).push(
+                await rootNavigator.push(
                   MaterialPageRoute(
                     fullscreenDialog: true,
                     builder: (_) => PersonalizationOnboardingScreen(
@@ -110,7 +111,7 @@ class _OnboardingGateState extends ConsumerState<OnboardingGate> {
                 );
 
                 if (!mounted) return;
-                await Navigator.of(context).push(
+                await rootNavigator.push(
                   MaterialPageRoute(
                     fullscreenDialog: true,
                     builder: (_) => IdentityOnboardingScreen(
@@ -125,6 +126,7 @@ class _OnboardingGateState extends ConsumerState<OnboardingGate> {
 
                 if (!mounted) return;
                 await syncOnboardingStatusFromBackend(ref);
+                if (!mounted) return;
                 await showDialog<bool?>(
                   context: context,
                   barrierDismissible: false,
@@ -140,8 +142,8 @@ class _OnboardingGateState extends ConsumerState<OnboardingGate> {
               } catch (e) {
                 debugPrint(
                     "[OnboardingGate] Error saving onboarding step 1 or showing step 2: $e");
-                if (Navigator.of(dialogContext).canPop()) {
-                  Navigator.of(dialogContext).pop();
+                if (dialogContext.mounted && dialogNavigator.canPop()) {
+                  dialogNavigator.pop();
                 }
               }
             },

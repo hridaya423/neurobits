@@ -52,8 +52,7 @@ class TextUtils {
     'sats',
     'gcse',
     'ib',
-    'ap',
-    'sat'
+    'ap'
   };
   static String capitalizeTitle(String text) {
     if (text.isEmpty) return text;

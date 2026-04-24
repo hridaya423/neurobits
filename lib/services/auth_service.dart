@@ -7,6 +7,7 @@ enum AuthStatus { unknown, authenticated, unauthenticated }
 class AuthService {
   static AuthService? _instance;
   static AuthService get instance => _instance!;
+  static bool get isInitialized => _instance != null;
 
   final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
 

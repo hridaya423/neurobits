@@ -185,6 +185,9 @@ class _SplashWrapperState extends State<_SplashWrapper> {
   void _preloadDataInBackground() {
     Future.microtask(() async {
       try {
+        if (!AuthService.isInitialized) {
+          return;
+        }
         if (AuthService.instance.currentStatus == AuthStatus.authenticated) {
           ConvexClientService.instance.query(name: 'users:getMe');
         }

@@ -715,255 +715,257 @@ class _PersonalizationOnboardingScreenState
 
     return Padding(
       padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Exam Specialization (Optional)',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Pick an exam target to make your practice board- and paper-style aware.',
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Colors.grey.shade600,
-                ),
-          ),
-          const SizedBox(height: 16),
-          SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Enable exam-focused prep'),
-            value: _examFocusEnabled,
-            onChanged: (value) {
-              setState(() {
-                _examFocusEnabled = value;
-                if (!value) {
-                  _selectedExamEntry = null;
-                }
-              });
-            },
-          ),
-          if (_examFocusEnabled) ...[
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _examSearchController,
-                    decoration: const InputDecoration(
-                      labelText: 'Search exam (e.g. GCSE Maths AQA)',
-                      border: OutlineInputBorder(),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Exam Specialization (Optional)',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Pick an exam target to make your practice board- and paper-style aware.',
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: Colors.grey.shade600,
+                  ),
+            ),
+            const SizedBox(height: 16),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Enable exam-focused prep'),
+              value: _examFocusEnabled,
+              onChanged: (value) {
+                setState(() {
+                  _examFocusEnabled = value;
+                  if (!value) {
+                    _selectedExamEntry = null;
+                  }
+                });
+              },
+            ),
+            if (_examFocusEnabled) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _examSearchController,
+                      decoration: const InputDecoration(
+                        labelText: 'Search exam (e.g. GCSE Maths AQA)',
+                        border: OutlineInputBorder(),
+                      ),
+                      onSubmitted: (_) => _resolveExamIntent(),
                     ),
-                    onSubmitted: (_) => _resolveExamIntent(),
+                  ),
+                  const SizedBox(width: 10),
+                  FilledButton(
+                    onPressed: _isResolvingExam ? null : _resolveExamIntent,
+                    child: _isResolvingExam
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Find'),
+                  ),
+                ],
+              ),
+              if (_selectedExamEntry != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .primary
+                        .withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                  child: Text(
+                    'Selected: ${_examLabel(_selectedExamEntry!)}',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
                   ),
                 ),
-                const SizedBox(width: 10),
-                FilledButton(
-                  onPressed: _isResolvingExam ? null : _resolveExamIntent,
-                  child: _isResolvingExam
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Find'),
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest
+                        .withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Exam planning basics',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Set your year, key dates, and realistic daily capacity so we can build a better revision plan from day one.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Current year group',
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [9, 10, 11, 12, 13].map((year) {
+                          return ChoiceChip(
+                            selected: _examYearGroup == year,
+                            label: Text('Year $year'),
+                            onSelected: (_) {
+                              setState(() {
+                                _examYearGroup = year;
+                              });
+                            },
+                          );
+                        }).toList(),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () async {
+                                final picked = await _pickDate(_examMockDate);
+                                if (picked == null) return;
+                                setState(() {
+                                  _examMockDate = picked;
+                                });
+                              },
+                              icon: const Icon(Icons.event_outlined),
+                              label: const Text('Set mock date'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          TextButton(
+                            onPressed: _examMockDate == null
+                                ? null
+                                : () {
+                                    setState(() {
+                                      _examMockDate = null;
+                                    });
+                                  },
+                            child: const Text('Clear'),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        'Mocks: ${_formatDate(_examMockDate)}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () async {
+                                final picked = await _pickDate(_examDate);
+                                if (picked == null) return;
+                                setState(() {
+                                  _examDate = picked;
+                                });
+                              },
+                              icon: const Icon(Icons.event_available_outlined),
+                              label: const Text('Set exam date'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          TextButton(
+                            onPressed: _examDate == null
+                                ? null
+                                : () {
+                                    setState(() {
+                                      _examDate = null;
+                                    });
+                                  },
+                            child: const Text('Clear'),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        'Exam: ${_formatDate(_examDate)}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Daily study minutes: $_examDailyStudyMinutes',
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
+                      Slider(
+                        value: _examDailyStudyMinutes.toDouble(),
+                        min: 10,
+                        max: 180,
+                        divisions: 34,
+                        label: '$_examDailyStudyMinutes min/day',
+                        onChanged: (value) {
+                          setState(() {
+                            _examDailyStudyMinutes = value.round();
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Weekly sessions target: $_examWeeklySessionsTarget',
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
+                      Slider(
+                        value: _examWeeklySessionsTarget.toDouble(),
+                        min: 2,
+                        max: 14,
+                        divisions: 12,
+                        label: '$_examWeeklySessionsTarget sessions',
+                        onChanged: (value) {
+                          setState(() {
+                            _examWeeklySessionsTarget = value.round();
+                          });
+                        },
+                      ),
+                    ],
+                  ),
                 ),
               ],
-            ),
-            if (_selectedExamEntry != null) ...[
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .primary
-                      .withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                ),
-                child: Text(
-                  'Selected: ${_examLabel(_selectedExamEntry!)}',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                ),
+              const SizedBox(height: 14),
+              Text(
+                options.isEmpty ? 'No exam matches yet.' : 'Suggested exams',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
               ),
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .surfaceContainerHighest
-                      .withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(10),
+              if (options.isEmpty && _examIntentQuery.trim().isNotEmpty) ...[
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    _selectExamEntry(_buildCustomExamTarget(_examIntentQuery));
+                  },
+                  icon: const Icon(Icons.edit_note_rounded),
+                  label: Text('Use "${_examIntentQuery.trim()}" as custom'),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Exam planning basics',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Set your year, key dates, and realistic daily capacity so we can build a better revision plan from day one.',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Current year group',
-                      style: Theme.of(context).textTheme.labelLarge,
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [9, 10, 11, 12, 13].map((year) {
-                        return ChoiceChip(
-                          selected: _examYearGroup == year,
-                          label: Text('Year $year'),
-                          onSelected: (_) {
-                            setState(() {
-                              _examYearGroup = year;
-                            });
-                          },
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () async {
-                              final picked = await _pickDate(_examMockDate);
-                              if (picked == null) return;
-                              setState(() {
-                                _examMockDate = picked;
-                              });
-                            },
-                            icon: const Icon(Icons.event_outlined),
-                            label: const Text('Set mock date'),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        TextButton(
-                          onPressed: _examMockDate == null
-                              ? null
-                              : () {
-                                  setState(() {
-                                    _examMockDate = null;
-                                  });
-                                },
-                          child: const Text('Clear'),
-                        ),
-                      ],
-                    ),
-                    Text(
-                      'Mocks: ${_formatDate(_examMockDate)}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () async {
-                              final picked = await _pickDate(_examDate);
-                              if (picked == null) return;
-                              setState(() {
-                                _examDate = picked;
-                              });
-                            },
-                            icon: const Icon(Icons.event_available_outlined),
-                            label: const Text('Set exam date'),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        TextButton(
-                          onPressed: _examDate == null
-                              ? null
-                              : () {
-                                  setState(() {
-                                    _examDate = null;
-                                  });
-                                },
-                          child: const Text('Clear'),
-                        ),
-                      ],
-                    ),
-                    Text(
-                      'Exam: ${_formatDate(_examDate)}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Daily study minutes: $_examDailyStudyMinutes',
-                      style: Theme.of(context).textTheme.labelLarge,
-                    ),
-                    Slider(
-                      value: _examDailyStudyMinutes.toDouble(),
-                      min: 10,
-                      max: 180,
-                      divisions: 34,
-                      label: '$_examDailyStudyMinutes min/day',
-                      onChanged: (value) {
-                        setState(() {
-                          _examDailyStudyMinutes = value.round();
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Weekly sessions target: $_examWeeklySessionsTarget',
-                      style: Theme.of(context).textTheme.labelLarge,
-                    ),
-                    Slider(
-                      value: _examWeeklySessionsTarget.toDouble(),
-                      min: 2,
-                      max: 14,
-                      divisions: 12,
-                      label: '$_examWeeklySessionsTarget sessions',
-                      onChanged: (value) {
-                        setState(() {
-                          _examWeeklySessionsTarget = value.round();
-                        });
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            const SizedBox(height: 14),
-            Text(
-              options.isEmpty ? 'No exam matches yet.' : 'Suggested exams',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
-            if (options.isEmpty && _examIntentQuery.trim().isNotEmpty) ...[
+              ],
               const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: () {
-                  _selectExamEntry(_buildCustomExamTarget(_examIntentQuery));
-                },
-                icon: const Icon(Icons.edit_note_rounded),
-                label: Text('Use "${_examIntentQuery.trim()}" as custom'),
-              ),
-            ],
-            const SizedBox(height: 8),
-            Expanded(
-              child: ListView.builder(
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
                 itemCount: options.length,
                 itemBuilder: (context, index) {
                   final entry = options[index];
@@ -1025,9 +1027,9 @@ class _PersonalizationOnboardingScreenState
                   );
                 },
               ),
-            ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

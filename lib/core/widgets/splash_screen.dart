@@ -46,6 +46,9 @@ class _SplashScreenState extends State<SplashScreen>
 
   Future<void> _prefetchUserData() async {
     try {
+      if (!AuthService.isInitialized) {
+        return;
+      }
       if (AuthService.instance.currentStatus != AuthStatus.authenticated) {
         return;
       }
