@@ -6,6 +6,8 @@ Neurobits is an adaptive learning app built with Flutter. It combines AI-generat
 - `convex/`: Convex backend functions and seed data
 - `neurobits/`: Next.js website
 
+https://github.com/user-attachments/assets/1abecb0c-1bb5-467e-a4ee-f9cddb115a25
+
 ## Current Product Features
 
 - Adaptive quiz generation with mixed formats (`mcq`, `input`, `multi_select`, `ordering`, `fill_blank`, `code`)
