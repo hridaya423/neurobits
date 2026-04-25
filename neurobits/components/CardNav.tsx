@@ -189,7 +189,7 @@ const CardNav: React.FC<CardNavProps> = ({
               </svg>
             </a>
             <a
-              href="https://github.com/hridaya423/neurobits/releases/tag/v1.0.0"
+              href="https://github.com/hridaya423/neurobits/releases/tag/v0.0.0-dev-24933071552-1"
               className="store-icon-button"
               aria-label="Download Android APK"
               style={{ color: buttonTextColor }}
