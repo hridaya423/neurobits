@@ -55,9 +55,13 @@ jobs:
         id: get_version
         run: |
           if [[ $GITHUB_REF == refs/tags/* ]]; then
-            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            if [[ "${GITHUB_RUN_ATTEMPT}" != "1" ]]; then
+              echo "VERSION=${GITHUB_REF#refs/tags/}-rerun-${GITHUB_RUN_ATTEMPT}" >> $GITHUB_OUTPUT
+            else
+              echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            fi
           else
-            echo "VERSION=v1.0.0" >> $GITHUB_OUTPUT
+            echo "VERSION=v0.0.0-dev-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> $GITHUB_OUTPUT
           fi
 
       - name: Create Release
