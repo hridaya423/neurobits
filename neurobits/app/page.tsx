@@ -7,7 +7,6 @@ import { motion, useScroll, useTransform, MotionValue } from 'framer-motion';
 import Lenis from 'lenis';
 import Dither from '../components/Dither';
 import CardNav from '../components/CardNav';
-import RollingGallery from '../components/RollingGallery';
 
 const tinos = Outfit({
   subsets: ['latin'],
@@ -114,6 +113,9 @@ function ChapterImage({ chapter, index, total, progress }: { chapter: { image: s
 }
 
 export default function Home() {
+  const demoVideoRef = useRef<HTMLVideoElement>(null);
+  const speedNudgeTimerRef = useRef<number | null>(null);
+
   useEffect(() => {
     const lenis = new Lenis({
       autoRaf: true,
@@ -126,6 +128,59 @@ export default function Home() {
 
     return () => {
       lenis.destroy();
+    };
+  }, []);
+
+  useEffect(() => {
+    const video = demoVideoRef.current;
+    if (!video) return;
+
+    const clearSpeedNudge = () => {
+      if (speedNudgeTimerRef.current !== null) {
+        window.clearInterval(speedNudgeTimerRef.current);
+        speedNudgeTimerRef.current = null;
+      }
+    };
+
+    const applySpeed = () => {
+      const preferredRates = [8, 6, 5, 4, 3.5];
+      let appliedRate = video.playbackRate;
+
+      for (const finalRate of preferredRates) {
+        video.defaultPlaybackRate = finalRate;
+        video.playbackRate = finalRate;
+        appliedRate = video.playbackRate;
+        if (appliedRate >= finalRate - 0.01) {
+          break;
+        }
+      }
+
+      clearSpeedNudge();
+
+      if (appliedRate < 3.5) {
+        speedNudgeTimerRef.current = window.setInterval(() => {
+          if (video.paused || video.seeking || !Number.isFinite(video.duration)) {
+            return;
+          }
+
+          const nextTime = video.currentTime + 0.22;
+          if (nextTime >= video.duration - 0.05) {
+            video.currentTime = 0;
+            return;
+          }
+          video.currentTime = nextTime;
+        }, 120);
+      }
+    };
+
+    applySpeed();
+    video.addEventListener('loadedmetadata', applySpeed);
+    video.addEventListener('play', applySpeed);
+
+    return () => {
+      video.removeEventListener('loadedmetadata', applySpeed);
+      video.removeEventListener('play', applySpeed);
+      clearSpeedNudge();
     };
   }, []);
 
@@ -210,12 +265,21 @@ export default function Home() {
                 Train your brain
               </p>
             </div>
-            <div className="order-2 scale-75 lg:scale-100 relative z-20">
-              <RollingGallery
-                images={showcaseImages}
-                autoplay={true}
-                pauseOnHover={true}
-              />
+            <div className="order-2 relative z-20 flex items-center justify-center">
+              <div className="relative mx-auto overflow-hidden rounded-[2rem] border border-white/20 bg-[#05010d]/85 shadow-[0_32px_120px_rgba(0,0,0,0.65)] w-full max-w-[240px] sm:max-w-[260px] lg:max-w-[280px]">
+                <div className="absolute inset-0 bg-gradient-to-t from-[#05010d]/55 via-transparent to-transparent pointer-events-none z-10" />
+                <video
+                  ref={demoVideoRef}
+                  src="https://github.com/user-attachments/assets/1abecb0c-1bb5-467e-a4ee-f9cddb115a25"
+                  className="block w-full aspect-[9/19.5] object-cover bg-black"
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  preload="auto"
+                  poster="/screenshot-1-App Screenshot.png"
+                />
+              </div>
             </div>
           </div>
         </section>
