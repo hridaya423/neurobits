@@ -291,17 +291,6 @@ class _QuestionChartBlockState extends State<QuestionChartBlock> {
       return const SizedBox.shrink();
     }
 
-    final spots = List.generate(candles.length, (i) {
-      final c = candles[i];
-      return CandlestickSpot(
-        x: i.toDouble(),
-        open: c.open,
-        high: c.high,
-        low: c.low,
-        close: c.close,
-      );
-    });
-
     final dataMax = candles.map((c) => c.high).reduce(math.max);
     final dataMin = candles.map((c) => c.low).reduce(math.min);
     final spread = math.max(1.0, dataMax - dataMin);
@@ -310,29 +299,51 @@ class _QuestionChartBlockState extends State<QuestionChartBlock> {
     final yInterval = _niceInterval(maxY - minY);
     final labels = candles.map((c) => c.label).toList();
 
-    return CandlestickChart(
-      CandlestickChartData(
-        candlestickSpots: spots,
-        candlestickPainter: DefaultCandlestickPainter(
-          candlestickStyleProvider: (spot, _) {
-            const upColor = Color(0xFF22C55E);
-            const downColor = Color(0xFFEF4444);
-            final c = spot.isUp ? upColor : downColor;
-            return CandlestickStyle(
-              lineColor: c,
-              lineWidth: 1.5,
-              bodyStrokeColor: c,
-              bodyStrokeWidth: 0,
-              bodyFillColor: c,
-              bodyWidth: 9,
-              bodyRadius: 1.5,
-            );
-          },
-        ),
-        minX: -0.2,
-        maxX: (spots.length - 1).toDouble() + 0.2,
+    final highSpots = List.generate(
+      candles.length,
+      (i) => FlSpot(i.toDouble(), candles[i].high),
+    );
+    final lowSpots = List.generate(
+      candles.length,
+      (i) => FlSpot(i.toDouble(), candles[i].low),
+    );
+    final closeSpots = List.generate(
+      candles.length,
+      (i) => FlSpot(i.toDouble(), candles[i].close),
+    );
+
+    return LineChart(
+      LineChartData(
+        minX: 0,
+        maxX: (candles.length - 1).toDouble(),
         minY: minY,
         maxY: maxY,
+        lineBarsData: [
+          LineChartBarData(
+            spots: highSpots,
+            isCurved: false,
+            barWidth: 1.9,
+            color: const Color(0xFF22C55E),
+            dotData: FlDotData(show: false),
+            belowBarData: BarAreaData(show: false),
+          ),
+          LineChartBarData(
+            spots: lowSpots,
+            isCurved: false,
+            barWidth: 1.9,
+            color: const Color(0xFFEF4444),
+            dotData: FlDotData(show: false),
+            belowBarData: BarAreaData(show: false),
+          ),
+          LineChartBarData(
+            spots: closeSpots,
+            isCurved: false,
+            barWidth: 2.4,
+            color: const Color(0xFF60A5FA),
+            dotData: FlDotData(show: true),
+            belowBarData: BarAreaData(show: false),
+          ),
+        ],
         gridData: FlGridData(
           show: true,
           drawVerticalLine: false,
@@ -360,6 +371,25 @@ class _QuestionChartBlockState extends State<QuestionChartBlock> {
             format: spec.format,
             xIntervalOverride: 1,
             truncateXLabels: false),
+        lineTouchData: LineTouchData(
+          enabled: true,
+          handleBuiltInTouches: true,
+          touchTooltipData: LineTouchTooltipData(
+            getTooltipColor: (_) => colorScheme.surface,
+            getTooltipItems: (spots) {
+              if (spots.isEmpty) return <LineTooltipItem>[];
+              final index =
+                  spots.first.x.round().clamp(0, candles.length - 1);
+              final c = candles[index];
+              return [
+                LineTooltipItem(
+                  '${labels[index]}\nO: ${_formatValue(c.open, spec.format)}  H: ${_formatValue(c.high, spec.format)}\nL: ${_formatValue(c.low, spec.format)}  C: ${_formatValue(c.close, spec.format)}',
+                  TextStyle(color: colorScheme.onSurface, fontSize: 12),
+                ),
+              ];
+            },
+          ),
+        ),
       ),
       duration: const Duration(milliseconds: 220),
     );
