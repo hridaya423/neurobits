@@ -19,8 +19,8 @@ https://github.com/user-attachments/assets/1abecb0c-1bb5-467e-a4ee-f9cddb115a25
 
 ## Requirements
 
-- Flutter `>=3.27.4`
-- Dart `>=3.6.2 <4.0.0`
+- Flutter `>=3.38.7` (recommended)
+- Dart `>=3.8.1 <4.0.0`
 
 ## Environment Variables
 
