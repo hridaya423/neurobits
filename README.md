@@ -58,23 +58,6 @@ flutter analyze
 flutter test
 ```
 
-## Convex Seed / Data Scripts
-
-From repo root:
-
-```bash
-npm run seed:examCatalog
-npm run seed:examKnowledge
-npm run seed:examAll
-```
-
-Helper script entry points:
-
-```bash
-npm run sme:scrape
-npm run sme:normalize
-npm run sme:bulk
-```
 ## Website
 
 The site is in `neurobits/`.
