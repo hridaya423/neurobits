@@ -245,7 +245,7 @@ export default function Home() {
               bgColor: '#6D28D9',
               textColor: '#FFFFFF',
               links: [
-                { label: 'Download APK', href: 'https://github.com/hridaya423/neurobits/releases/tag/v1.0.0', ariaLabel: 'Download Android APK' },
+                { label: 'Download APK', href: 'https://github.com/hridaya423/neurobits/releases/tag/v0.0.0-dev-24933071552-1', ariaLabel: 'Download Android APK' },
                 { label: 'View All Releases', href: 'https://github.com/hridaya423/neurobits/releases', ariaLabel: 'View all releases' }
               ]
             }
